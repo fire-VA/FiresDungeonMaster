@@ -6,11 +6,11 @@ using System.Linq;
 namespace FiresDungeonMaster.Sections
 {
     /// <summary>
-    /// SectionLibrary â€” load/save/list section blueprints as .blueprint files
+    /// SectionLibrary - load/save/list section blueprints as .blueprint files
     /// in the shared PlanBuild blueprints folder.
     ///
     /// DESIGN:
-    ///   - Sections are saved to: C:\Users\{user}\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\BlueHills\BepInEx\config\PlanBuild
+    ///   - Sections are saved to: C:\Users\{user}\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\<profile>\BepInEx\config\PlanBuild
     ///   - Each section .blueprint file is named <SectionId>.blueprint (immutable, hash-based).
     ///   - SectionLibrary mints a stable section ID on first save (never the display name).
     ///   - Supports load-by-id, load-by-name, and list-all operations.
@@ -25,7 +25,7 @@ namespace FiresDungeonMaster.Sections
     {
         /// <summary>
         /// Root directory for section blueprints (shared PlanBuild folder).
-        /// Typical path: C:\Users\{user}\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\BlueHills\BepInEx\config\PlanBuild
+        /// Typical path: C:\Users\{user}\AppData\Roaming\r2modmanPlus-local\Valheim\profiles\<profile>\BepInEx\config\PlanBuild
         /// </summary>
         private readonly string _blueprintRoot;
 

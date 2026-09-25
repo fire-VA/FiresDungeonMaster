@@ -65,8 +65,8 @@ namespace FiresDungeonMaster
         }
 
         // Compact banner — portcullis gate over a status frame. 31-char frame body
-        // (3 lead + ╔ + 26 ═ + ╗); 🏰 is a surrogate pair (.Length 2) that renders
-        // 2 cells, so plain padding to 26 holds — same width math as the siblings.
+        // (3 lead + ╔ + 26 ═ + ╗); 🏰 is a surrogate pair, but the console
+        // ADVANCES ONE column for it (no VS16), however wide the font paints the glyph, so this row pads it as one cell.
         private static readonly Banner.Segment[][] s_compactLines =
         {
             new[] { new Banner.Segment("             ▄▀▀▀▀▀▀▀▄",      ConsoleColor.DarkGray) },
@@ -107,7 +107,7 @@ namespace FiresDungeonMaster
             {
                 new Banner.Segment("   ║     ",            ConsoleColor.DarkGray),
                 new Banner.Segment("🏰 GATES MANNED",      ConsoleColor.Yellow),
-                new Banner.Segment("      ║",              ConsoleColor.DarkGray),
+                new Banner.Segment("       ║",              ConsoleColor.DarkGray),
             },
             new[] { new Banner.Segment("   ╚══════════════════════════╝", ConsoleColor.DarkGray) },
             new[] { new Banner.Segment("    FIRES DUNGEON MASTER",     ConsoleColor.Cyan) },

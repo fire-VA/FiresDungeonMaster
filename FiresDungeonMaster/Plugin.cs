@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using BepInEx;
 using FiresCore.Lifecycle;
@@ -19,12 +19,12 @@ namespace FiresDungeonMaster
     /// memorial domain dropped). Editor + section + generation modules are added in phases (see project memory).
     /// </summary>
     [BepInPlugin(PluginGUID, PluginName, PluginVersion)]
-    [BepInDependency("com.Fire.FiresUnifiedCore", BepInDependency.DependencyFlags.HardDependency)]
+    [BepInDependency("com.Fire.FiresUnifiedCore", "0.2.33")]
     public class FiresDungeonMasterPlugin : FiresMod<FiresDungeonMasterPlugin>
     {
         public const string PluginGUID = "com.Fire.FiresDungeonMaster";
         public const string PluginName = "FiresDungeonMaster";
-        public const string PluginVersion = "0.1.114";
+        public const string PluginVersion = "0.1.122";
 
         internal static BepInEx.Logging.ManualLogSource Log;
 
@@ -95,6 +95,9 @@ namespace FiresDungeonMaster
             // FiresMod base Harmony.PatchAll; the runtime dungeon rides FiresDungeon.Core via the bridge.
             FiresDungeonMaster.Generation.DungeonGenerationCommands.Register();
 
+            try { FiresDungeonMaster.UI.DungeonHelpContent.Register(); }
+            catch (System.Exception ex) { Logger.LogWarning($"Help registration failed: {ex.Message}"); }
+
             // Phase 1+: bind config; load the editor bundle; register the footprint hammer piece, the section
             // library (PlanBuild .blueprint round-trip), the tag gizmos, capture, and the per-dungeon DungeonSpec
             // assembly that hands sections to FiresCore.Bridge.FiresDungeonBridge.
@@ -122,7 +125,7 @@ namespace FiresDungeonMaster
             // a dungeon's non-replicating room ROOTS (walls/floors) by instantiating its DungeonGenerator ZDO — which
             // only resolves if the client's ZNetScene has the renamed FiresDM_<type>DG prefab, i.e. only if the client
             // BUILT that vanilla spec. Without this the client saw generated props (icicles) but no walls. Fixed set, so
-            // no clientâ†”server sync needed; idempotent.
+            // no client<->server sync needed; idempotent.
             int vanillaTypes = 0;
             try
             {
@@ -142,7 +145,7 @@ namespace FiresDungeonMaster
                 int pieces = 0;
                 foreach (var interior in FiresDungeonMaster.Generation.DungeonMasterRoomFactory.InteriorByRoomName.Values)
                     pieces += interior?.Count ?? 0;
-                FiresCore.Logging.LoadSummary.For(PluginName).EmitMiniBox("ðŸ° DUNGEONS", new[]
+                FiresCore.Logging.LoadSummary.For(PluginName).EmitMiniBox("\uD83C\uDFF0 DUNGEONS", new[]
                 {
                     $"{vanillaTypes} vanilla theme(s)",
                     $"{libraryTypes} library type(s)",

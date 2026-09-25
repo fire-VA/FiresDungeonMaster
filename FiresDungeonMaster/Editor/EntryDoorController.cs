@@ -278,6 +278,8 @@ namespace FiresDungeonMaster.Editor
             return $"<color=orange><b>{DisplayNameOrDefault()}</b></color>\n[<color=yellow><b>{useKey}</b></color>] Enter";
         }
 
+        public float GetHoverOffset() => 0f;
+
         public string GetHoverName() => DisplayNameOrDefault();
 
         // ── Interactable ──────────────────────────────────────────────────────────────────────────────────────
@@ -407,7 +409,7 @@ namespace FiresDungeonMaster.Editor
         /// <summary>The GENERATED entry door whose dungeon owns this XZ zone (interior sits at that zone's centre +5000).</summary>
         public static EntryDoorController FindGeneratedDoorInZone(Vector3 pos)
         {
-            Vector2i zone = ZoneSystem.GetZone(pos);
+            Vector2s zone = ZoneSystem.GetZone(pos);
             foreach (var d in UnityEngine.Object.FindObjectsByType<EntryDoorController>(FindObjectsSortMode.None))
             {
                 if (d == null || !d.Generated) continue;
@@ -423,7 +425,7 @@ namespace FiresDungeonMaster.Editor
         /// </summary>
         public FiresCore.Utilities.EnvironmentBoxController FindPairedEnvBox()
         {
-            Vector2i zone = ZoneSystem.GetZone(transform.position);
+            Vector2s zone = ZoneSystem.GetZone(transform.position);
             Vector3 anchor = ZoneSystem.GetZonePos(zone);
             FiresCore.Utilities.EnvironmentBoxController best = null;
             float bestXZ = float.MaxValue;

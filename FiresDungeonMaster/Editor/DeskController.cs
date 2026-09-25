@@ -113,6 +113,8 @@ namespace FiresDungeonMaster.Editor
                    $"[<color=yellow><b>{useKey}</b></color>] Open Section Browser";
         }
 
+        public float GetHoverOffset() => 0f;
+
         public string GetHoverName() => DeskDisplayName;
 
         // ---------------- Interactable (wayshrine call shape + admin gate) ----------------

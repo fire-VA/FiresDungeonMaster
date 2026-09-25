@@ -68,7 +68,7 @@ namespace FiresDungeonMaster.Editor
             if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
 
             FiresCore.Dungeon.DungeonSpec spec = null;
-            Vector2i zone = ZoneSystem.GetZone(doorPos);
+            Vector2s zone = ZoneSystem.GetZone(doorPos);
             foreach (var dg in UnityEngine.Object.FindObjectsByType<DungeonGenerator>(FindObjectsSortMode.None))
             {
                 if (dg == null || dg.gameObject == null) continue;

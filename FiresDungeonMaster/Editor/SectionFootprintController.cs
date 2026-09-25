@@ -1189,6 +1189,8 @@ namespace FiresDungeonMaster.Editor
             return sb.ToString();
         }
 
+        public float GetHoverOffset() => 0f;
+
         public string GetHoverName() => IsLocalPlayerAdmin() ? "Dungeon Section Footprint" : "";
 
         // E (no hold) opens the notebook editor on the centre page — the same window Alt+Shift right-click opens, so

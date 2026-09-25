@@ -6,7 +6,7 @@ using UnityEngine;
 namespace FiresDungeonMaster.Sections
 {
     /// <summary>
-    /// SectionBlueprint â€” the data model for a dungeon section (a modular room).
+    /// SectionBlueprint - the data model for a dungeon section (a modular room).
     /// Combines the standard Infinity-Hammer/PlanBuild Blueprint fields (name, pieces,
     /// snap points) with FiresDungeonMaster-specific metadata: footprint (XZ grid cells),
     /// story count, module role (center/edge/doorway/corridor/entry/exit/junction/transition),
@@ -14,7 +14,7 @@ namespace FiresDungeonMaster.Sections
     ///
     /// Piece data matches VABlueprintLoader.Piece structure:
     ///   name;id;x;y;z;qx;qy;qz;qw;extraInfo;sx;sy;sz;data;chance
-    /// (15 columns, indices 0â€“14).
+    /// (15 columns, indices 0-14).
     ///
     /// Can optionally wrap VABlueprintLoader.Blueprint or use its own parallel model.
     /// This implementation uses a clean parallel model to avoid circular dependencies.

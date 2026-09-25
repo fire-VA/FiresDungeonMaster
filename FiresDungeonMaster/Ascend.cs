@@ -119,12 +119,7 @@ namespace FiresDungeonMaster
         private static bool IsItem(string n) => Array.IndexOf(ItemPrefabNames, n) >= 0;
         private static bool IsDoor(string n) => Array.IndexOf(DoorPrefabNames, n) >= 0;
 
-        private static void SetLayerRecursive(GameObject go, int layer)
-        {
-            if (go == null || layer < 0) return;
-            go.layer = layer;
-            foreach (Transform c in go.transform) SetLayerRecursive(c.gameObject, layer);
-        }
+
         private static AssetBundle _bundle;
 
         /// <summary>
@@ -232,8 +227,9 @@ namespace FiresDungeonMaster
         internal static class ObjectDBPatches
         {
             [HarmonyPostfix]
-            private static void Postfix()
+            private static void Postfix(ObjectDB __instance)
             {
+                if (FiresCore.Pieces.HammerPieces.IsMainMenuObjectDB(__instance)) return;
                 // Order matters: swap the "_Copy" box materials to live vanilla FIRST (the proven render path),
                 // then wire the now-visible footprint piece into the Hammer.
                 try { FixShaders(); }
@@ -250,24 +246,10 @@ namespace FiresDungeonMaster
         // ZNetScene, then ApplyToPrefab(..., AssetSwapMode.Both) replaces each "_Copy" material wholesale with the
         // matching LIVE vanilla material (real game shader + texture). This is why the crypt ROOMS render; the
         // footprint box now renders by the SAME method. Runs once per prefab on ObjectDB.Awake.
-        private static bool _shaderWarmed;
-        private static readonly HashSet<GameObject> _shaderFixed = new HashSet<GameObject>();
-
         private static void FixShaders()
         {
-            if (!_shaderWarmed)
-            {
-                try { FiresCore.Services.VanillaAssetResolver.Warm(); _shaderWarmed = true; }
-                catch (Exception ex) { Debug.LogWarning($"[FiresDungeonMaster] shader warm failed: {ex.Message}"); }
-            }
             EnsurePrefabsLoaded();
-            foreach (GameObject prefab in _prefabs)
-            {
-                if (prefab == null) continue;
-                if (!_shaderFixed.Add(prefab)) continue; // once per prefab instance
-                try { FiresCore.Services.VanillaAssetResolver.ApplyToPrefab(prefab, FiresCore.Services.VanillaAssetResolver.AssetSwapMode.Both); }
-                catch (Exception ex) { Debug.LogWarning($"[FiresDungeonMaster] shader fix {prefab.name}: {ex.Message}"); }
-            }
+            FiresCore.Services.VanillaAssetResolver.RepairPrefabsOnce(_prefabs, FiresCore.Services.VanillaAssetResolver.AssetSwapMode.Both, "[FiresDungeonMaster]");
         }
 
         private static void RegisterPrefabs()
@@ -277,18 +259,9 @@ namespace FiresDungeonMaster
 
             EnsurePrefabsLoaded();
 
-            FieldInfo namedField = typeof(ZNetScene).GetField("m_namedPrefabs", BindingFlags.NonPublic | BindingFlags.Instance);
-            var named = namedField?.GetValue(znet) as Dictionary<int, GameObject>;
-
             // Scrub fake-null refs left from a previous session before re-adding (leftover dead entries make other
             // mods NRE iterating m_prefabs / m_namedPrefabs).
-            znet.m_prefabs.RemoveAll(p => p == null);
-            if (named != null)
-            {
-                var dead = new List<int>();
-                foreach (var kvp in named) if (kvp.Value == null) dead.Add(kvp.Key);
-                foreach (var k in dead) named.Remove(k);
-            }
+            FiresCore.World.NetworkPrefabs.ScrubDeadEntries(znet);
 
             foreach (GameObject prefab in _prefabs)
             {
@@ -315,7 +288,7 @@ namespace FiresDungeonMaster
                     envCtrl.CurrentSkyboxMode = FiresCore.Utilities.EnvironmentBoxController.SkyboxMode.DungeonBlack;
                     envCtrl.CurrentVisibility = FiresCore.Utilities.EnvironmentBoxController.VisibilityMode.Hidden;
                     envCtrl.AffectsVanillaPaint = false;
-                    RegisterByName(znet, named, prefab);
+                    FiresCore.World.NetworkPrefabs.RegisterByName(znet, prefab);
                     continue;
                 }
 
@@ -372,7 +345,7 @@ namespace FiresDungeonMaster
                     envVadCtrl.MinSize = new Vector3(2f, 2f, 2f);
                     envVadCtrl.MaxSize = new Vector3(640f, 5000f, 640f);
 
-                    RegisterByName(znet, named, prefab);
+                    FiresCore.World.NetworkPrefabs.RegisterByName(znet, prefab);
                     continue;
                 }
 
@@ -398,7 +371,7 @@ namespace FiresDungeonMaster
                     if (prefab.GetComponent<FiresDungeonMaster.Editor.DeskController>() == null)
                         prefab.AddComponent<FiresDungeonMaster.Editor.DeskController>();
 
-                    RegisterByName(znet, named, prefab);
+                    FiresCore.World.NetworkPrefabs.RegisterByName(znet, prefab);
                     continue;
                 }
 
@@ -411,10 +384,10 @@ namespace FiresDungeonMaster
                 {
                     ZNetView dv = prefab.GetComponent<ZNetView>() ?? prefab.AddComponent<ZNetView>();
                     dv.m_persistent = true;
-                    SetLayerRecursive(prefab, LayerMask.NameToLayer("piece"));
+                    FiresCore.Pieces.HammerPieces.SetLayerRecursive(prefab, LayerMask.NameToLayer("piece"));
                     if (prefab.GetComponent<FiresDungeonMaster.Editor.EntryDoorController>() == null)
                         prefab.AddComponent<FiresDungeonMaster.Editor.EntryDoorController>();
-                    RegisterByName(znet, named, prefab);
+                    FiresCore.World.NetworkPrefabs.RegisterByName(znet, prefab);
                     continue;
                 }
 
@@ -423,7 +396,7 @@ namespace FiresDungeonMaster
                 if (IsItem(prefab.name))
                 {
                     SetupItemPrefab(prefab);
-                    RegisterByName(znet, named, prefab);
+                    FiresCore.World.NetworkPrefabs.RegisterByName(znet, prefab);
                     continue;
                 }
 
@@ -453,18 +426,10 @@ namespace FiresDungeonMaster
                 // via FiresCore.Services.VanillaAssetResolver.ApplyToPrefab(..., Both) — the EXACT proven path that makes
                 // the FiresMausoleum crypt ROOMS render in-game. No manual per-piece material grab here.
 
-                RegisterByName(znet, named, prefab);
+                FiresCore.World.NetworkPrefabs.RegisterByName(znet, prefab);
             }
         }
 
-        private static void RegisterByName(ZNetScene znet, Dictionary<int, GameObject> named, GameObject go)
-        {
-            if (go == null) return;
-            if (znet.GetPrefab(go.name) != null) return;
-            znet.m_prefabs.Add(go);
-            int hash = go.name.GetStableHashCode();
-            if (named != null && !named.ContainsKey(hash)) named.Add(hash, go);
-        }
 
         // ── ItemDrop items (keys + lockpick) ───────────────────────────────────────────────────────────────────
         // ZNetScene time: give the baked mesh prefab what a dropped item needs (ZNetView, Rigidbody, convex collider,
@@ -476,7 +441,7 @@ namespace FiresDungeonMaster
             nv.m_persistent = true;
 
             int itemLayer = LayerMask.NameToLayer("item");
-            if (itemLayer >= 0) SetLayerRecursive(prefab, itemLayer);
+            if (itemLayer >= 0) FiresCore.Pieces.HammerPieces.SetLayerRecursive(prefab, itemLayer);
 
             foreach (var mc in prefab.GetComponentsInChildren<MeshCollider>(true)) mc.enabled = false;
             if (prefab.GetComponent<BoxCollider>() == null)
@@ -642,10 +607,8 @@ namespace FiresDungeonMaster
 
             EnsurePrefabsLoaded(); // heal stale prefabs regardless of ObjectDB.Awake vs ZNetScene.Awake order
 
-            GameObject hammer = ObjectDB.instance.GetItemPrefab("Hammer");
-            PieceTable table = hammer?.GetComponent<ItemDrop>()?.m_itemData?.m_shared?.m_buildPieces;
+            PieceTable table = FiresCore.Pieces.HammerPieces.HammerTable();
             if (table == null) { Debug.LogWarning("[FiresDungeonMaster] Hammer PieceTable not ready"); return; }
-            table.m_pieces.RemoveAll(p => p == null);
 
             // Allocate / register the custom category BEFORE assigning it to any piece and BEFORE
             // PieceTable.UpdateAvailable runs (which would otherwise size m_availablePieces to 8 and throw).
@@ -676,11 +639,8 @@ namespace FiresDungeonMaster
                 // Baked hammer icon from the bundle (builder BakePieceIcons); replaces the default red-shield chip.
                 if (piece.m_icon == null) piece.m_icon = LoadBundleSprite(prefab.name + "_icon");
 
-                if (!table.m_pieces.Contains(prefab))
-                {
-                    table.m_pieces.Add(prefab);
+                if (FiresCore.Pieces.HammerPieces.AddToTable(table, prefab))
                     FiresLogger.LogVerbose($"added {prefab.name} to Hammer ('{DungeonSectionsCategory}')");
-                }
             }
         }
 
@@ -706,10 +666,15 @@ namespace FiresDungeonMaster
             [HarmonyPriority(HarmonyLib.Priority.Last)]   // after every tab-grow/injector postfix, so nothing re-adds
             private static void Postfix(PieceTable __instance)
             {
-                if (__instance == null || __instance.m_availablePieces == null) return;
+                if (__instance == null) return;
                 if (Editor.SectionFootprintController.IsAdmin()) return;
 
-                foreach (var categoryList in __instance.m_availablePieces)
+                // 1.0: m_availablePieces is a FLAT HashSet<Piece>; the per-category lists this walks are
+                // the private m_availablePiecesByCategory, reached through Core.
+                var byCategory = FiresCore.Bridge.PieceTableAccess.ByCategory(__instance);
+                if (byCategory == null) return;
+
+                foreach (var categoryList in byCategory)
                 {
                     if (categoryList == null) continue;
                     categoryList.RemoveAll(p => p != null && _adminOnlyPieceNames.Contains(p.gameObject.name));
@@ -750,15 +715,12 @@ namespace FiresDungeonMaster
             ZNetScene znet = ZNetScene.instance;
             if (znet == null || locationClone == null) return;
 
-            FieldInfo namedField = typeof(ZNetScene).GetField("m_namedPrefabs", BindingFlags.NonPublic | BindingFlags.Instance);
-            var named = namedField?.GetValue(znet) as Dictionary<int, GameObject>;
-
             foreach (Transform child in locationClone.GetComponentsInChildren<Transform>(true))
             {
                 if (child == null || child.gameObject == locationClone) continue;
                 string n = child.gameObject.name;
                 if (n == dgName || n == portalName)
-                    RegisterByName(znet, named, child.gameObject);
+                    FiresCore.World.NetworkPrefabs.RegisterByName(znet, child.gameObject);
             }
         }
 
@@ -838,8 +800,14 @@ namespace FiresDungeonMaster
         private static void AddCategoryToTable(PieceTable table, Piece.PieceCategory cat, string label)
         {
             int needed = (int)cat + 1;
-            while (table.m_availablePieces.Count < needed)
-                table.m_availablePieces.Add(new List<Piece>());
+            // 1.0 SPLIT this field: m_availablePieces is now a FLAT HashSet<Piece> and the per-category
+            // lists moved to the private m_availablePiecesByCategory. PieceTableAccess is the family's
+            // one reader of it - going direct compiles against the publicized assembly and then throws
+            // FieldAccessException on first touch.
+            var byCategory = FiresCore.Bridge.PieceTableAccess.ByCategory(table);
+            if (byCategory != null)
+                while (byCategory.Count < needed)
+                    byCategory.Add(new List<Piece>());
 
             if (!table.m_categories.Contains(cat))
             {
@@ -888,8 +856,14 @@ namespace FiresDungeonMaster
                 if (v >= (int)Piece.PieceCategory.All) continue;
                 if (v + 1 > needed) needed = v + 1;
             }
-            while (table.m_availablePieces.Count < needed)
-                table.m_availablePieces.Add(new List<Piece>());
+            // 1.0 SPLIT this field: m_availablePieces is now a FLAT HashSet<Piece> and the per-category
+            // lists moved to the private m_availablePiecesByCategory. PieceTableAccess is the family's
+            // one reader of it - going direct compiles against the publicized assembly and then throws
+            // FieldAccessException on first touch.
+            var byCategory = FiresCore.Bridge.PieceTableAccess.ByCategory(table);
+            if (byCategory != null)
+                while (byCategory.Count < needed)
+                    byCategory.Add(new List<Piece>());
         }
 
         // Grow the Hud's category-tab array so 'Dungeon Sections' has a clickable tab when FAP isn't present to do
@@ -910,8 +884,7 @@ namespace FiresDungeonMaster
         {
             if (hud == null || hud.m_pieceCategoryTabs == null || hud.m_pieceCategoryTabs.Length == 0) return;
 
-            GameObject hammer = ObjectDB.instance?.GetItemPrefab("Hammer");
-            PieceTable table = hammer?.GetComponent<ItemDrop>()?.m_itemData?.m_shared?.m_buildPieces;
+            PieceTable table = FiresCore.Pieces.HammerPieces.HammerTable();
             if (table == null) return;
 
             int needed = table.m_categories.Count;

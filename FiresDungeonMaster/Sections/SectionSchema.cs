@@ -8,7 +8,7 @@ using UnityEngine;
 namespace FiresDungeonMaster.Sections
 {
     /// <summary>
-    /// SectionSchema â€” reader and writer for .blueprint files (Infinity-Hammer/PlanBuild format)
+    /// SectionSchema - reader and writer for .blueprint files (Infinity-Hammer/PlanBuild format)
     /// extended with FiresDungeonMaster custom headers.
     ///
     /// READER (ParseFile):
@@ -377,14 +377,14 @@ namespace FiresDungeonMaster.Sections
         /// <summary>
         /// Format a piece as a 15-column semicolon-separated line.
         /// Column order: name;id;x;y;z;qx;qy;qz;qw;extraInfo;sx;sy;sz;data;chance
-        /// (indices 0â€“14, matching VABlueprintLoader.ParsePlanBuildPiece).
+        /// (indices 0-14, matching VABlueprintLoader.ParsePlanBuildPiece).
         /// </summary>
         private static string FormatPieceLine(Piece piece)
         {
             var sb = new StringBuilder();
             sb.Append(piece.Prefab ?? "");
             sb.Append(";");
-            sb.Append(""); // id (col 1) â€” always empty for round-trip losslessness.
+            sb.Append(""); // id (col 1) - always empty for round-trip losslessness.
             sb.Append(";");
             sb.Append(FormatInvariant(piece.Pos.x));
             sb.Append(";");

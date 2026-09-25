@@ -41,13 +41,13 @@ namespace FiresDungeonMaster.Sections
             ZDOID uid = zdo.m_uid;
             if (uid == ZDOID.None) return "";
 
-            List<KeyValuePair<int, float>> floats = ZDOExtraData.GetFloats(uid);
-            List<KeyValuePair<int, Vector3>> vec3s = ZDOExtraData.GetVec3s(uid);
-            List<KeyValuePair<int, Quaternion>> quats = ZDOExtraData.GetQuaternions(uid);
-            List<KeyValuePair<int, int>> ints = ZDOExtraData.GetInts(uid);
-            List<KeyValuePair<int, long>> longs = ZDOExtraData.GetLongs(uid);
-            List<KeyValuePair<int, string>> strings = ZDOExtraData.GetStrings(uid);
-            List<KeyValuePair<int, byte[]>> bytes = ZDOExtraData.GetByteArrays(uid);
+            List<KeyValuePair<int, float>> floats = FiresCore.Bridge.ZdoExtraDataAccess.GetFloats(uid);
+            List<KeyValuePair<int, Vector3>> vec3s = FiresCore.Bridge.ZdoExtraDataAccess.GetVec3s(uid);
+            List<KeyValuePair<int, Quaternion>> quats = FiresCore.Bridge.ZdoExtraDataAccess.GetQuaternions(uid);
+            List<KeyValuePair<int, int>> ints = FiresCore.Bridge.ZdoExtraDataAccess.GetInts(uid);
+            List<KeyValuePair<int, long>> longs = FiresCore.Bridge.ZdoExtraDataAccess.GetLongs(uid);
+            List<KeyValuePair<int, string>> strings = FiresCore.Bridge.ZdoExtraDataAccess.GetStrings(uid);
+            List<KeyValuePair<int, byte[]>> bytes = FiresCore.Bridge.ZdoExtraDataAccess.GetByteArrays(uid);
 
             int total = Count(floats) + Count(vec3s) + Count(quats) + Count(ints) +
                         Count(longs) + Count(strings) + Count(bytes);
