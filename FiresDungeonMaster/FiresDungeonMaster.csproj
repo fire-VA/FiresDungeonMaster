@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
+    <ProjectGuid>{C7B2F1D3-8E4A-4F66-AD29-4B3E8F6D0A51}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <AppDesignerFolder>Properties</AppDesignerFolder>
+    <RootNamespace>FiresDungeonMaster</RootNamespace>
+    <AssemblyName>FiresDungeonMaster</AssemblyName>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>latest</LangVersion>
+    <FileAlignment>512</FileAlignment>
+    <CodePage>65001</CodePage>
+    <Deterministic>true</Deterministic>
+    <PathMap>$(MSBuildProjectDirectory)=/_/</PathMap>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>DEBUG;TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>bin\Release\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="0Harmony">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim dedicated server\BepInEx\core\0Harmony.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="BepInEx">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim dedicated server\BepInEx\core\BepInEx.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="assembly_valheim">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\publicized_assemblies\assembly_valheim_publicized.dll</HintPath>
+    </Reference>
+    <!-- Pinned to the centralized legacy stash (NOT $(GamePath)) so emitted GetStableHashCode IL stays
+         branch-deterministic. See reference_assembly_utils_pin. -->
+    <Reference Include="assembly_utils">
+      <HintPath>$(GamePath)\valheim_Data\Managed\assembly_utils.dll</HintPath>
+      <Private>False</Private>
+      </Reference>
+    <!-- Publicized stand-in for SoftReferenceableAssets (same assembly identity as the runtime DLL).
+         Gives us the SoftReference/AssetBundleLoader surface the DungeonDB room + ZoneLocation
+         registration needs (ported from BalrondNature). Private=False: the real game assembly loads
+         at runtime; we only need its public-widened metadata to compile. -->
+    <Reference Include="SoftReferenceableAssets">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\publicized_assemblies\SoftReferenceableAssets_publicized.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="FiresUnifiedCore">
+      <HintPath>..\..\FiresUnifiedCore\FiresUnifiedCore\bin\Release\FiresUnifiedCore.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="assembly_guiutils">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\assembly_guiutils.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.ParticleSystemModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.PhysicsModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AssetBundleModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.AssetBundleModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.JSONSerializeModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UI">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.UI.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.UIModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="UnityEngine.InputLegacyModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.InputLegacyModule.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Unity.TextMeshPro">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\Unity.TextMeshPro.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Xml" />
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="Microsoft.CSharp" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Plugin.cs" />
+    <Compile Include="DungeonMasterConfig.cs" />
+    <Compile Include="Ascend.cs" />
+    <Compile Include="Utilities\FiresLogger.cs" />
+    <Compile Include="Utilities\TypingGate.cs" />
+    <Compile Include="Utilities\FiresDungeonMasterBanner.cs" />
+    <Compile Include="Editor\SectionFootprintController.cs" />
+    <Compile Include="Editor\VanillaRoomPieces.cs" />
+    <Compile Include="Editor\DungeonPresets.cs" />
+    <Compile Include="UI\DungeonPresetUI.cs" />
+    <Compile Include="Editor\EnvBoxPresets.cs" />
+    <Compile Include="UI\EnvBoxPresetUI.cs" />
+    <Compile Include="UI\GripSprite.cs" />
+    <Compile Include="Editor\SectionGuideWalls.cs" />
+    <Compile Include="Editor\SectionFootprintContextProvider.cs" />
+    <Compile Include="Editor\SectionPlaceGrabController.cs" />
+    <Compile Include="Editor\DeskController.cs" />
+    <Compile Include="Editor\FootprintTagScaler.cs" />
+    <Compile Include="Editor\FootprintLibraryAccess.cs" />
+    <Compile Include="Editor\SectionSnapping.cs" />
+    <Compile Include="Editor\FootprintSnapController.cs" />
+    <Compile Include="UI\DungeonTypeInput.cs" />
+    <Compile Include="UI\SaveSectionInput.cs" />
+    <Compile Include="UI\EntryDoorPanel.cs" />
+    <Compile Include="UI\DungeonHelpContent.cs" />
+    <Compile Include="UI\DungeonEditPanel.cs" />
+    <Compile Include="Modules\AllScalablePatch.cs" />
+    <Compile Include="UI\LockpickPanel.cs" />
+    <Compile Include="UI\LockpickAudio.cs" />
+    <Compile Include="Editor\EntryDoorController.cs" />
+    <Compile Include="Editor\LockpickSkill.cs" />
+    <Compile Include="Editor\InfinityHammerPlacement.cs" />
+    <Compile Include="Editor\BlueprintPlaceDiag.cs" />
+    <Compile Include="Editor\EntryDoorContextProvider.cs" />
+    <Compile Include="Editor\EntryDoorGeneration.cs" />
+    <Compile Include="Editor\DungeonTeleportPatches.cs" />
+    <Compile Include="Editor\FiresUndoBridge.cs" />
+    <Compile Include="Editor\EntryDoorRpc.cs" />
+    <Compile Include="UI\DragWidgets.cs" />
+    <Compile Include="UI\SectionPlanRenderer.cs" />
+    <Compile Include="UI\SectionEditorPanel.cs" />
+    <Compile Include="UI\BlueprintBenchPanel.cs" />
+    <Compile Include="UI\BlueprintPreviewRenderer.cs" />
+    <Compile Include="UI\NotebookEditorPanel.cs" />
+    <Compile Include="UI\SectionBrowserUI.cs" />
+    <Compile Include="Sections\SectionBlueprint.cs" />
+    <Compile Include="Sections\SectionSchema.cs" />
+    <Compile Include="Sections\SectionLibrary.cs" />
+    <Compile Include="Sections\FdmPaths.cs" />
+    <Compile Include="Sections\SectionZdoData.cs" />
+    <Compile Include="Sections\DataEntryBridge.cs" />
+    <Compile Include="Sections\SectionCenterpoint.cs" />
+    <Compile Include="Sections\SectionCapture.cs" />
+    <Compile Include="Sections\SectionPlacer.cs" />
+    <Compile Include="Sections\SectionEditSpawner.cs" />
+    <Compile Include="Modules\DungeonMasterCommands.cs" />
+    <Compile Include="Generation\DungeonMasterNames.cs" />
+    <Compile Include="Generation\DungeonMasterRoomFactory.cs" />
+    <Compile Include="Generation\DungeonMasterSpecBuilder.cs" />
+    <Compile Include="Generation\DungeonMasterInteriorPatch.cs" />
+    <Compile Include="Generation\DungeonGenerationCommands.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The baked editor AssetBundle, embedded so GetAssetBundleFromResources (Ascend.cs) can stream it.
+         Staged into the mod project dir after the Unity bake. The Exists guard lets the mod compile bundle-less
+         (e.g. before the first bake), matching the FiresMausoleum / FiresWayshrines csproj pattern. -->
+    <EmbeddedResource Include="firesdungeonmaster" Condition="Exists('$(MSBuildProjectDirectory)\firesdungeonmaster')">
+      <LogicalName>firesdungeonmaster</LogicalName>
+    </EmbeddedResource>
+    <!-- Lock-picking minigame art (user-authored, sliced): housing / one pin / the pick rod. Embedded so
+         LockpickPanel loads them at runtime via Texture2D.LoadImage (no bundle rebuild needed to iterate). -->
+    <EmbeddedResource Include="Art\FiresLockHousing.png"><LogicalName>FiresLockHousing.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresLockPin.png"><LogicalName>FiresLockPin.png</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresLockPick.png"><LogicalName>FiresLockPick.png</LogicalName></EmbeddedResource>
+    <!-- Lock-picking audio (user m4a → 16-bit PCM wav). Loaded at runtime by LockpickAudio via reflection. -->
+    <EmbeddedResource Include="Art\FiresLockPinSet.wav"><LogicalName>FiresLockPinSet.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresLockDrag.wav"><LogicalName>FiresLockDrag.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresLockRequiresKey.wav"><LogicalName>FiresLockRequiresKey.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresDoorUnlock.wav"><LogicalName>FiresDoorUnlock.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresDoorOpen.wav"><LogicalName>FiresDoorOpen.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresLockBreak1.wav"><LogicalName>FiresLockBreak1.wav</LogicalName></EmbeddedResource>
+    <EmbeddedResource Include="Art\FiresLockBreak2.wav"><LogicalName>FiresLockBreak2.wav</LogicalName></EmbeddedResource>
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+</Project>
