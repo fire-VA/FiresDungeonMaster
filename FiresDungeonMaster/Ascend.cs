@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 using FiresCore.Logging;
 using FiresDungeonMaster.Editor;
@@ -29,12 +30,13 @@ namespace FiresDungeonMaster
         internal const string BundleResourceName = "firesdungeonmaster";
         internal const string FootprintPrefabName = "FiresDungeonFootprint";
         internal const string DeskPrefabName = "FiresDungeonDesk";
-        internal const string DungeonSectionsCategory = "Dungeon Sections";
+        internal const string DungeonSectionsCategory = "Dungeons";   // 0.1.153 (Fire: ONE Dungeons category, the room sets as filters inside it); was "Dungeon Sections"
 
         // The prefab(s) this mod owns: the footprint container (P2), the blueprint DESK (P2b — opens the section
         // browser on [E]), and the baked Location/Interior/DG/Portal template + dark-crypt env box (P6 generation,
         // mirroring the FiresMausoleum crypt bundle).
         private static readonly List<GameObject> _prefabs = new List<GameObject>();
+        internal static bool IsOwnPiece(string name) => name != null && _prefabs.Exists(p => p != null && p.name == name);   // 0.1.133: the Dungeons build tab
 
         // Downloaded dungeon art (baked by FiresDungeonMasterBuilder.BuildDoorsAndKeys): the placeable entry-door
         // variants (hammer pieces; EntryDoorController is attached in Phase 2) and the two keys (spawnable props now;
@@ -159,10 +161,62 @@ namespace FiresDungeonMaster
                     FiresLogger.LogWarning("bundle not found — footprint piece will not place until the bundle ships.");
                     return;
                 }
-                CollectPrefabs(_bundle.LoadAllAssets<GameObject>());
+                CollectPrefabs(LoadOwnedPrefabs());
                 FiresLogger.LogInfo($"bundle loaded; {_prefabs.Count} footprint prefab(s).");
+                ReleaseTexturesIfHeadless();
             }
             catch (Exception ex) { Debug.LogError($"[FiresDungeonMaster] bundle/prefab load failed: {ex}"); }
+        }
+
+        // 0.1.138 (memory plan: a -nographics dedi keeps texture pixel data it never draws): on a headless server the bundle's
+        // textures are unloaded right after the prefabs are collected. The prefabs, meshes and colliders the server needs stay;
+        // Resources.UnloadAsset only drops the texture data (Unity reloads it from the bundle if anything ever asks).
+        private static void ReleaseTexturesIfHeadless()
+        {
+            if (SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null || _bundle == null) return;
+            int n = 0; long bytes = 0;
+            foreach (Texture2D t in _bundle.LoadAllAssets<Texture2D>())
+            {
+                if (t == null) continue;
+                bytes += UnityEngine.Profiling.Profiler.GetRuntimeMemorySizeLong(t);
+                Resources.UnloadAsset(t);
+                n++;
+            }
+            FiresLogger.LogDebug($"[FiresDungeonMaster] headless server: unloaded {n} bundle texture(s), ~{bytes / 1048576.0:0.0} MB (meshes, colliders and prefabs kept)");
+        }
+
+        // 0.1.168 ([fgn] log-spam measure 10-14: ~183 "The referenced script on this Behaviour is missing!" right after this bundle loads,
+        // on piece prefabs whose ZNetView / WearNTear / Piece script refs don't resolve): LoadAllAssets<GameObject>() deserialized EVERY
+        // prefab in the 21 MB bundle, though only the owned ones are ever used. Now only the owned names load (the drafting bench under its
+        // bundle name); a loaded prefab with a missing script is named once (prefab / child path / count), so a broken owned one is visible.
+        private static GameObject[] LoadOwnedPrefabs()
+        {
+            var got = new List<GameObject>();
+            int skipped = 0;
+            // the lead: the memory the load costs (Unity's allocated native + managed), before / after, for the RAM comparison with 0.1.167
+            long nat0 = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong(), mono0 = UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong();
+            try { skipped = _bundle.GetAllAssetNames().Count(a => a.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase)); } catch { }
+            foreach (string name in _ownedPrefabNames.Concat(new[] { "FiresDraftingBench" }))
+            {
+                GameObject p = null;
+                try { p = _bundle.LoadAsset<GameObject>(name); } catch { }
+                if (p == null) continue;
+                got.Add(p);
+                var broken = p.GetComponentsInChildren<Transform>(true).Select(tr => (tr, n: tr.GetComponents<Component>().Count(c => c == null))).Where(x => x.n > 0).ToList();
+                if (broken.Count > 0)
+                    Debug.LogWarning($"[FiresDungeonMaster] owned prefab '{p.name}' has missing script(s): {string.Join(", ", broken.Select(b => $"{PathOf(b.tr, p.transform)} x{b.n}").ToArray())}");
+            }
+            long nat1 = UnityEngine.Profiling.Profiler.GetTotalAllocatedMemoryLong(), mono1 = UnityEngine.Profiling.Profiler.GetMonoUsedSizeLong();
+            FiresLogger.LogDebug($"[FiresDungeonMaster] loaded {got.Count} owned prefab(s) by name (of {skipped} prefab(s) in the bundle; the rest are never deserialized); load cost: Unity allocated {(nat1 - nat0) / 1048576.0:+0.0;-0.0} MB (now {nat1 / 1048576.0:0} MB), mono used {(mono1 - mono0) / 1048576.0:+0.0;-0.0} MB");
+            return got.ToArray();
+        }
+
+        private static string PathOf(Transform t, Transform root)
+        {
+            string s = t.name;
+            var c = t;
+            while (c != root && c.parent != null) { c = c.parent; s = c.name + "/" + s; }
+            return s;
         }
 
         private static void CollectPrefabs(GameObject[] assets)
@@ -171,6 +225,9 @@ namespace FiresDungeonMaster
             foreach (GameObject p in assets)
             {
                 if (p == null) continue;
+                // 0.1.144 ([classes-ui] bench, Fire SHIP): the drafting bench replaces the KG desk. It takes the desk's prefab name, so every
+                // desk already placed (ZDOs hash "FiresDungeonDesk") resolves to it and the desk registration below applies unchanged.
+                if (p.name == "FiresDraftingBench") { p.name = DeskPrefabName; FiresLogger.LogDebug("[FiresDungeonMaster] drafting bench loaded as '" + DeskPrefabName + "' (old desks resolve to it)"); }
                 if (!_ownedPrefabNames.Contains(p.name)) continue;
                 UnityEngine.Object.DontDestroyOnLoad(p);
                 if (!_prefabs.Contains(p)) _prefabs.Add(p);
@@ -184,6 +241,20 @@ namespace FiresDungeonMaster
                     return loaded;
 
             Assembly asm = Assembly.GetExecutingAssembly();
+            // 0.1.139 (Fire, memory plan): the bundle ships as an LZ4 file next to the DLL and is streamed by LoadFromFile - no
+            // 44 MB assembly image, no managed copy, no native copy of the whole file. The embedded copy (older zips) is the fallback.
+            try
+            {
+                string file = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(asm.Location) ?? "", name);
+                if (System.IO.File.Exists(file))
+                {
+                    var fromFile = AssetBundle.LoadFromFile(file);
+                    FiresLogger.LogDebug($"[FiresDungeonMaster] bundle '{name}' loaded from {file} ({new System.IO.FileInfo(file).Length / 1048576.0:0.0} MB file){(fromFile == null ? " - FAILED, trying the embedded copy" : "")}");
+                    if (fromFile != null) return fromFile;
+                }
+                else FiresLogger.LogDebug($"[FiresDungeonMaster] no bundle file at {file}; using the embedded copy");
+            }
+            catch (Exception ex) { Debug.LogWarning($"[FiresDungeonMaster] bundle file load threw {ex.Message}; using the embedded copy"); }
             string resourceName = Array.Find(asm.GetManifestResourceNames(),
                 n => n.EndsWith(name, StringComparison.OrdinalIgnoreCase));
             if (resourceName == null) { Debug.LogError($"[FiresDungeonMaster] no embedded resource ending with '{name}'"); return null; }
@@ -191,9 +262,13 @@ namespace FiresDungeonMaster
             using (System.IO.Stream stream = asm.GetManifestResourceStream(resourceName))
             {
                 if (stream == null) return null;
-                using var ms = new System.IO.MemoryStream();
-                stream.CopyTo(ms);
-                return AssetBundle.LoadFromMemory(ms.ToArray());   // full copy — disposed-stream lazy re-read crashes the dedi
+                // 0.1.138 (memory plan): one exact-size copy. The MemoryStream path grew its buffer by doubling and ToArray copied it
+                // again (~2-3x the 44 MB bundle in managed memory at load). Still a full copy - a disposed-stream lazy re-read
+                // crashes the dedi - but only one, released after LoadFromMemory.
+                var bytes = new byte[stream.Length];
+                int read = 0;
+                while (read < bytes.Length) { int n = stream.Read(bytes, read, bytes.Length - read); if (n <= 0) break; read += n; }
+                return AssetBundle.LoadFromMemory(bytes);
             }
         }
 
@@ -629,7 +704,7 @@ namespace FiresDungeonMaster
                 if (piece == null) piece = prefab.AddComponent<Piece>();
                 if (string.IsNullOrEmpty(piece.m_name))
                     piece.m_name = _pieceDisplayNames.TryGetValue(prefab.name, out var dn) ? dn
-                                 : (prefab.name == DeskPrefabName ? "Dungeon Blueprint Desk" : "Dungeon Section Footprint");
+                                 : (prefab.name == DeskPrefabName ? "Drafting Bench" : "Dungeon Section Footprint");
                 // The restored EnvBox_vad lives on the vanilla Misc tab (its original home), not our custom tab.
                 piece.m_category = prefab.name == "EnvBox_vad" ? Piece.PieceCategory.Misc : category;
                 piece.m_enabled = true;
@@ -638,10 +713,23 @@ namespace FiresDungeonMaster
                 if (piece.m_resources == null) piece.m_resources = new Piece.Requirement[0];
                 // Baked hammer icon from the bundle (builder BakePieceIcons); replaces the default red-shield chip.
                 if (piece.m_icon == null) piece.m_icon = LoadBundleSprite(prefab.name + "_icon");
+                // 0.1.144: the drafting bench has no baked icon; Core renders one at runtime (clients only).
+                if (piece.m_icon == null && prefab.name == DeskPrefabName && SystemInfo.graphicsDeviceType != UnityEngine.Rendering.GraphicsDeviceType.Null)
+                {
+                    try { piece.m_icon = FiresCore.UI.ItemIconRenderer.Render(prefab, 128); } catch (Exception ex) { Debug.LogWarning("[FiresDungeonMaster] drafting bench icon render failed: " + ex.Message); }
+                    FiresLogger.LogDebug("[FiresDungeonMaster] drafting bench icon: " + (piece.m_icon != null ? "rendered by Core" : "none (the Hammer shows the default)"));
+                }
 
                 if (FiresCore.Pieces.HammerPieces.AddToTable(table, prefab))
                     FiresLogger.LogVerbose($"added {prefab.name} to Hammer ('{DungeonSectionsCategory}')");
             }
+
+            // 0.1.124 (Fire): every vanilla dungeon room, one hammer tab per dungeon type.
+            VanillaRoomPieces.AddToHammer(table, _ => category);   // 0.1.153: every room in the one Dungeons category (no category per room set)
+            DungeonSubFilters.Register(table);   // 0.1.153: the room sets as FAP sub-filters of the one Dungeons category
+            // 0.1.125 (Fire): dungeon presets on the hammer right-click (FAP hook) + the presets window's key.
+            DungeonPresetMenu.TryRegister();
+            FiresDungeonMaster.UI.DungeonPresetUI.Ensure();
         }
 
         // ── ADMIN GATE for the build menu ─────────────────────────────────────────────────────────────────────
@@ -677,7 +765,7 @@ namespace FiresDungeonMaster
                 foreach (var categoryList in byCategory)
                 {
                     if (categoryList == null) continue;
-                    categoryList.RemoveAll(p => p != null && _adminOnlyPieceNames.Contains(p.gameObject.name));
+                    categoryList.RemoveAll(p => p != null && (_adminOnlyPieceNames.Contains(p.gameObject.name) || VanillaRoomPieces.IsRoomPiece(p.gameObject.name)));
                 }
             }
         }
@@ -689,7 +777,7 @@ namespace FiresDungeonMaster
             if (_bundle == null) return;
             if (_prefabs.Count > 0 && !_prefabs.Exists(p => p == null)) return;
             _prefabs.RemoveAll(p => p == null);
-            CollectPrefabs(_bundle.LoadAllAssets<GameObject>());
+            CollectPrefabs(LoadOwnedPrefabs());
             FiresLogger.LogInfo($"re-acquired footprint prefabs after relogin ({_prefabs.Count}).");
         }
 
@@ -749,6 +837,19 @@ namespace FiresDungeonMaster
         // Cached reflection handle to FAP's VACategoryRegistry.GetOrAdd(string), or null when FAP is not loaded.
         private static MethodInfo _fapGetOrAdd;
         private static bool _fapProbed;
+
+        // 0.1.124: any named tab (the vanilla room tabs), through FAP's registry when present.
+        internal static Piece.PieceCategory GetOrAdd(PieceTable table, string label)
+        {
+            ProbeFap();
+            Piece.PieceCategory cat;
+            object value = null;
+            if (_fapGetOrAdd != null)
+                try { value = _fapGetOrAdd.Invoke(null, new object[] { label }); } catch (Exception ex) { Debug.LogWarning($"[FiresDungeonMaster] FAP category '{label}' failed: {ex.Message}"); }
+            cat = value is Piece.PieceCategory pc ? pc : value != null ? (Piece.PieceCategory)Convert.ToInt32(value) : FootprintCategoryRegistry.GetOrAdd(label);
+            AddCategoryToTable(table, cat, label);
+            return cat;
+        }
 
         internal static Piece.PieceCategory GetOrAddDungeonSections(PieceTable table)
         {

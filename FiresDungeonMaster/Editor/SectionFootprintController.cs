@@ -22,7 +22,7 @@ namespace FiresDungeonMaster.Editor
     /// Dedi-safe: IsClientOnly() (no graphics device) gates EVERY renderer/mesh/material touch. The ZNetView +
     /// ZDO logic still runs headless so placed footprints persist server-side.
     /// </summary>
-    public class SectionFootprintController : MonoBehaviour, Hoverable, Interactable
+    public partial class SectionFootprintController : MonoBehaviour, Hoverable, Interactable
     {
         #region Dedi guard
 
@@ -78,7 +78,7 @@ namespace FiresDungeonMaster.Editor
         // P3 per-face tag (persisted as the int above). Default Wall = the un-tagged solid face.
         public EdgeTag EdgeTagN = EdgeTag.Wall;
         public EdgeTag EdgeTagE = EdgeTag.Wall;
-        public EdgeTag EdgeTagS = EdgeTag.Wall;
+        public EdgeTag EdgeTagS = EdgeTag.Doorway;   // 0.1.164: a fresh builder has one connection, so it saves as a valid room
         public EdgeTag EdgeTagW = EdgeTag.Wall;
 
         // Which outer face (0=N,1=E,2=S,3=W) is the dungeon's MAIN ENTRANCE/EXIT — the "first room" generation starts
@@ -208,6 +208,7 @@ namespace FiresDungeonMaster.Editor
             // WYSIWYG guide walls: build the blue wall/door/window panels for the current tags + hand the orbs of
             // materialized faces off to their walls (an Open face keeps its orb). Client-only; skipped on the ghost.
             RebuildGuides();
+            Phase1Awake();   // 0.1.164: wireframe flag, solid grid floor, auto-level
 
             // Register in the live list the context-menu marker source iterates to ray-test every footprint's five
             // spheres, and ensure the Core provider + marker source are registered (idempotent, client-only). This is
@@ -223,7 +224,7 @@ namespace FiresDungeonMaster.Editor
                 // the final transform aren't settled yet), which is why the box came out empty.
                 if (FiresDungeonMaster.Sections.SectionEditSpawner.HasPending)
                 {
-                    Debug.Log("[FiresDungeonMaster][EDIT-DBG] footprint placed with a pending edit — applying in 2 frames.");
+                    FiresLogger.LogDebug("[FiresDungeonMaster][EDIT-DBG] footprint placed with a pending edit — applying in 2 frames.");
                     StartCoroutine(ApplyPendingEditDeferred());
                 }
             }
@@ -273,7 +274,7 @@ namespace FiresDungeonMaster.Editor
         {
             if (IsClientOnly()) return;
             bool bound = m_wireBox != null;
-            Debug.Log($"[FOOTPRINT-DBG] pos={transform.position} BoxSize={BoxSize} valid={(m_nview != null && m_nview.IsValid())} ghost={Player.IsPlacementGhost(gameObject)} wirebox={(bound ? "bound" : "NULL(rebake?)")}");
+            FiresLogger.LogDebug($"[FOOTPRINT-DBG] pos={transform.position} BoxSize={BoxSize} valid={(m_nview != null && m_nview.IsValid())} ghost={Player.IsPlacementGhost(gameObject)} wirebox={(bound ? "bound" : "NULL(rebake?)")}");
         }
 
         private void LateUpdate()
@@ -281,6 +282,7 @@ namespace FiresDungeonMaster.Editor
             // Keep the edge quads + center sphere pinned to the (possibly rescaled) footprint faces. NO hover
             // feedback: the crosshair is already the pick indicator, so the spheres never resize or over-glow on aim.
             if (m_markersBuilt) UpdateMarkerTransforms();
+            Phase1Tick();
         }
 
         private void OnDestroy()
@@ -396,9 +398,7 @@ namespace FiresDungeonMaster.Editor
             // UV, so a stretched X/Z scale smears the tiling). Give the floor a fresh SOLID-COLOR material instead —
             // no _MainTex means no UV problem — copying the env-box CreateBoxMaterial recipe (a new Standard material
             // with only _Color set). Standard instanced at runtime renders reliably, exactly like the env markers.
-            if (m_markerFloor != null)
-                foreach (var mr in m_markerFloor.GetComponentsInChildren<MeshRenderer>(true))
-                    mr.material = CreateSolidColorMaterial(FloorColor);
+            if (m_markerFloor != null) ApplyGridFloor();   // 0.1.165: one floor renderer, grey with the 2 m grid
             ApplyEmissiveTint(m_rendCenter, CenterColor, CenterEmission);
             m_baseTinted = true;
         }
@@ -703,6 +703,7 @@ namespace FiresDungeonMaster.Editor
                     SectionGuideWalls.Log($"  face={FaceNames[face]} tag={t} segs={segs} orb={(orb != null ? (orb.activeSelf ? "SHOWN" : "hidden") : "null(not-baked)")}");
                 }
                 SectionGuideWalls.LogVerify(m_guideRoot.transform, panels);
+                ApplyWireframe();
             }
             catch (System.Exception ex)
             {
@@ -749,6 +750,7 @@ namespace FiresDungeonMaster.Editor
             SaveToZDO();
             RebuildSnapPoints();
             RebuildGuides();
+            OnSizeChanged164();
         }
 
         /// <summary>
@@ -835,7 +837,7 @@ namespace FiresDungeonMaster.Editor
                 }
                 catch { }
             }
-            if (n > 0) Debug.Log($"[FiresDungeonMaster] footprint removed — cleared {n} contained object(s).");
+            if (n > 0) FiresLogger.LogDebug($"[FiresDungeonMaster] footprint removed — cleared {n} contained object(s).");
         }
 
         // When a footprint box is DELETED (ZNetScene.Destroy = the permanent-delete path; stream-out uses a separate
@@ -853,6 +855,7 @@ namespace FiresDungeonMaster.Editor
                 if (p == null) return;                                                          // dedi/server: the removing client already cleared contents
                 if ((p.transform.position - fp.transform.position).sqrMagnitude > 60f * 60f) return;  // far = not a hand-remove
                 DestroyContents(fp);
+                fp.RestoreGround();   // 0.1.166: undo the clear-ground paint + plants (when that switch made them)
             }
         }
 
@@ -942,7 +945,7 @@ namespace FiresDungeonMaster.Editor
 
         /// <summary>One footprint cell = 8m (the dungeon grid pitch); a scaled box is an NxM grid of these.</summary>
         public const float CellMeters = 8f;
-        public const int MaxCells = 8;
+        public const int MaxCells = 25;              // 0.1.164: the hard ceiling (200 m); the live cap is CapCells (mode-dependent)
 
         /// <summary>
         /// Grow/shrink the footprint by whole cells (dx = east-west, dz = north-south), clamped to [1, MaxCells].
@@ -951,8 +954,8 @@ namespace FiresDungeonMaster.Editor
         /// </summary>
         public void AdjustFootprintCells(int dx, int dz)
         {
-            int nx = Mathf.Clamp(FootprintCellsX + dx, 1, MaxCells);
-            int nz = Mathf.Clamp(FootprintCellsZ + dz, 1, MaxCells);
+            int nx = Mathf.Clamp(FootprintCellsX + dx, 1, CapCells);
+            int nz = Mathf.Clamp(FootprintCellsZ + dz, 1, CapCells);
             if (nx == FootprintCellsX && nz == FootprintCellsZ) { ShowMessage($"Footprint: <color=yellow>{FootprintCellsX}x{FootprintCellsZ}</color> (min/max)"); return; }
             FootprintCellsX = nx; FootprintCellsZ = nz;
             ClaimOwnershipIfNeeded();
@@ -1371,14 +1374,20 @@ namespace FiresDungeonMaster.Editor
             Vector3 half = BoxSize / 2f;
             // Grid points at SnapPitch across the floor plane (Y=0, the floor top). Count is inclusive of both
             // edges: a 8m span at 2m pitch yields lines at -4,-2,0,2,4 (5 points/axis = nx*nz floor nodes).
-            int nx = Mathf.Clamp(Mathf.RoundToInt(BoxSize.x / SnapPitch) + 1, 2, MaxSnapLines);
-            int nz = Mathf.Clamp(Mathf.RoundToInt(BoxSize.z / SnapPitch) + 1, 2, MaxSnapLines);
+            // 0.1.164 (Fire: a snap point at EVERY 2 m crossing): the full grid, but only the crossings within SnapWindow
+            // of the player (a 128x128 room has 4,225), rebuilt by Phase1Tick as the player moves.
+            int nx = Mathf.Max(2, Mathf.RoundToInt(BoxSize.x / SnapPitch) + 1);
+            int nz = Mathf.Max(2, Mathf.RoundToInt(BoxSize.z / SnapPitch) + 1);
+            Vector3 me = SnapCentreLocal();
+            m_snapCentre = me;
             for (int ix = 0; ix < nx; ix++)
             {
-                float x = Mathf.Lerp(-half.x, half.x, nx == 1 ? 0.5f : (float)ix / (nx - 1));
+                float x = -half.x + ix * SnapPitch;
+                if (Mathf.Abs(x - me.x) > SnapWindow) continue;
                 for (int iz = 0; iz < nz; iz++)
                 {
-                    float z = Mathf.Lerp(-half.z, half.z, nz == 1 ? 0.5f : (float)iz / (nz - 1));
+                    float z = -half.z + iz * SnapPitch;
+                    if (Mathf.Abs(z - me.z) > SnapWindow) continue;
                     CreateSnapPointChild(new Vector3(x, 0f, z), $"SnapGrid_{ix}_{iz}");
                 }
             }

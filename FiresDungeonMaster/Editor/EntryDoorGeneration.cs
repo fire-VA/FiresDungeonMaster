@@ -11,10 +11,60 @@ namespace FiresDungeonMaster.Editor
     /// </summary>
     internal static class EntryDoorGeneration
     {
-        public static string GenerateForDoor(EntryDoorController door, Vector3 pos, Quaternion rot)
+        private const int MaxDungeonTypeLen = 64;
+
+        // 0.1.187: what the server builds from. It rides the generate RPC (the door's ZDO may not have reached the server yet, and a
+        // dedi usually has no door instance), and is checked by ValidateDoorConfig either way.
+        internal struct DoorConfig
         {
-            if (door == null) return "no door.";
+            internal string DungeonType, Environment, KeyPrefab;
+            internal bool IsVanilla, EmptyBox;
+        }
+
+        // 10-23 security audit: null when the door's ZDO config names only known values, else the reason.
+        //   DungeonType: a vanilla label (vanilla doors) or a type present in the server's own section library (custom
+        //   doors); empty-room doors accept either. Environment: EntryDoorController.Environments. KeyPrefab: empty or
+        //   EntryDoorController.KeyOptions.
+        private static string ValidateDoorConfig(DoorConfig door)
+        {
+            string type = door.DungeonType ?? "";
+            if (type.Length > MaxDungeonTypeLen) return "dungeon type name too long.";
+            foreach (char c in type) if (char.IsControl(c)) return "dungeon type name has control characters.";
+
+            bool isVanillaLabel = System.Array.IndexOf(EntryDoorController.VanillaDungeons, type) >= 0;
+            bool needCustom = !door.EmptyBox && !door.IsVanilla;
+            bool needVanilla = !door.EmptyBox && door.IsVanilla;
+            if (needVanilla && !isVanillaLabel) return $"unknown vanilla dungeon '{type}'.";
+            if (needCustom || (door.EmptyBox && !isVanillaLabel))
+            {
+                bool known = false;
+                try
+                {
+                    var lib = FiresDungeonMaster.Sections.FdmPaths.OpenLibrary();
+                    foreach (var t in FiresDungeonMaster.Generation.DungeonGenerationCommands.DistinctTypes(lib))
+                        if (string.Equals(t, type, System.StringComparison.OrdinalIgnoreCase)) { known = true; break; }
+                }
+                catch { known = false; }
+                if (!known) return $"unknown dungeon type '{type}'.";
+            }
+
+            string env = door.Environment ?? "";
+            if (env.Length > 0 && System.Array.IndexOf(EntryDoorController.Environments, env) < 0) return $"unknown environment '{env}'.";
+
+            string key = door.KeyPrefab ?? "";
+            if (key.Length > 0 && System.Array.IndexOf(EntryDoorController.KeyOptions, key) < 0) return $"unknown key '{key}'.";
+            return null;
+        }
+
+        /// <summary>Builds the door's dungeon; a dungeon it already has is torn down first (picking a dungeon replaces the empty box). dungeonId = the new id on success.</summary>
+        internal static string GenerateForDoor(DoorConfig door, long oldId, ZDOID doorId, Vector3 pos, Quaternion rot, out long dungeonId)
+        {
+            dungeonId = 0L;
             if (string.IsNullOrEmpty(door.DungeonType)) return "set a dungeon type first.";
+            // 10-23 security audit (EntryDoorController.cs:193-200 / EntryDoorGeneration.cs:17-48, Low): the door's config
+            // lives on a client-owned ZDO, so the server checks it against the known lists before building any spec.
+            string invalid = ValidateDoorConfig(door);
+            if (invalid != null) return "refused: " + invalid;
 
             // Server-authoritative ground snap (the door sits at its placed height; the dungeon anchors from there).
             if (ZoneSystem.instance != null && ZoneSystem.instance.GetGroundHeight(pos, out float gh)) pos.y = gh;
@@ -49,36 +99,14 @@ namespace FiresDungeonMaster.Editor
                 FiresCore.Bridge.FiresDungeonBridge.RegisterDungeon(spec);
             }
 
-            string result = FiresCore.Bridge.FiresDungeonBridge.SpawnDungeonAt(spec, pos, rot);
+            if (oldId != 0L) DungeonLink.Teardown(oldId, ZDOID.None, ZDOID.None, false);
+
+            long id = DungeonLink.NewId();
+            string result = DungeonLink.Stamped(id, () => FiresCore.Bridge.FiresDungeonBridge.SpawnDungeonAt(spec, pos, rot));
             // Only flag the door "generated" when the spawn actually placed the dungeon — a failure (e.g. ZoneLocation
             // unavailable) must NOT paint the door green, or it looks done while y+5000 is empty.
-            if (result != null && result.StartsWith("dungeon spawned")) door.Generated = true;
+            if (result != null && result.StartsWith("dungeon spawned")) dungeonId = id;
             return result;
-        }
-
-        /// <summary>
-        /// Server-authoritative teardown of the dungeon a door spawned when that door is removed. Rides the shared
-        /// Core teardown (FiresDungeonTeardown): interior at +5000 (rooms/portal/env box/props — live objects AND
-        /// orphan ZDOs the old loaded-only sweep missed), the location's surface structures, and the zone's
-        /// location-instance record. The spec is resolved from the zone's DG instance; a null spec still runs the
-        /// generic interior sweep. No-op off the server.
-        /// </summary>
-        public static void CleanupDungeonForDoor(Vector3 doorPos)
-        {
-            if (ZNet.instance == null || !ZNet.instance.IsServer()) return;
-
-            FiresCore.Dungeon.DungeonSpec spec = null;
-            Vector2s zone = ZoneSystem.GetZone(doorPos);
-            foreach (var dg in UnityEngine.Object.FindObjectsByType<DungeonGenerator>(FindObjectsSortMode.None))
-            {
-                if (dg == null || dg.gameObject == null) continue;
-                if (ZoneSystem.GetZone(dg.transform.position) != zone) continue;
-                spec = FiresCore.Dungeon.FiresDungeonRegistry.MatchForDg(dg.gameObject.name);
-                if (spec != null) break;
-            }
-
-            int destroyed = FiresCore.Bridge.FiresDungeonBridge.DestroyDungeonAt(spec, doorPos);
-            Debug.Log($"[FiresDungeonMaster] door removed at {doorPos}: tore down dungeon ({(spec != null ? spec.DgNamePrefix : "no spec match")}) — {destroyed} object(s).");
         }
     }
 }

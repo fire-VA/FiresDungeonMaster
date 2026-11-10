@@ -1,4 +1,4 @@
-﻿using UnityEngine;
+using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace FiresDungeonMaster.Editor
@@ -97,6 +97,7 @@ namespace FiresDungeonMaster.Editor
             if (_hovered == null) return;
             if (_scrollCooldown > 0) return;
             if (!IsLocalPlayerAdmin()) return;
+            if (TypingGate.Typing) return;   // 0.1.127 (Fire: no keybinds while typing): not while a text field has input
 
             float scroll = UnityEngine.Input.GetAxis("Mouse ScrollWheel");
             if (Mathf.Abs(scroll) < 0.01f) return;

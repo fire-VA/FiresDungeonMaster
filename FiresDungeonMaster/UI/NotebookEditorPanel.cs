@@ -138,6 +138,7 @@ namespace FiresDungeonMaster.UI
             if (grip != null)
             {
                 var img = grip.GetComponent<Image>(); if (img != null) img.raycastTarget = true;
+                GripFix.Apply(grip, "NotebookEditorPanel");   // 0.1.128: a real grip, not a plain square
                 var r = grip.GetComponent<DragResize>() ?? grip.AddComponent<DragResize>(); r.Target = _panel.GetComponent<RectTransform>(); r.MinSize = new Vector2(520f, 560f);
             }
 
@@ -213,6 +214,10 @@ namespace FiresDungeonMaster.UI
                    isEntrance, true, () => { _fp.SetEntranceFace(_marker); Rebuild(); });
         }
 
+        // 0.1.164 size presets in 8 m cells (the proposal's Small/Hall/Large/Cavern; Arena + Grand cavern are modded only)
+        private static readonly (string name, int x, int z)[] SizePresets =
+            { ("Small", 1, 1), ("Hall", 2, 3), ("Large", 4, 4), ("Cavern", 8, 8), ("Arena", 12, 12), ("Grand cavern", 16, 16) };
+
         private static void BuildCenter()
         {
             int cx = _fp.FootprintCellsX, cz = _fp.FootprintCellsZ;
@@ -230,7 +235,16 @@ namespace FiresDungeonMaster.UI
                 AddRow(role.ToString(), RoleBlurb(role), active, true, () => { _fp.SetRole(r); Rebuild(); });
             }
 
-            AddDivider($"· box size — {cx} x {cz} cells ({cx * 8} x {cz * 8} m) ·");
+            // 0.1.164: the wireframe is off by default; size presets + the mode's cap
+            AddRow(_fp.Wireframe ? "Hide wireframe" : "Show wireframe", _fp.Wireframe ? "hide the box frame + guide walls" : "show the box frame + guide walls",
+                   false, false, () => { _fp.SetWireframe(!_fp.Wireframe); Rebuild(); });
+            AddDivider($"· room size - {cx * 8} x {cz * 8} m · {SectionFootprintController.CapText} ·");
+            foreach (var p in SizePresets)
+            {
+                var pr = p; bool fits = pr.x <= SectionFootprintController.CapCells && pr.z <= SectionFootprintController.CapCells;
+                AddRow(pr.name, $"{pr.x * 8} x {pr.z * 8} m" + (fits ? "" : "  (modded mode only)"), cx == pr.x && cz == pr.z, true,
+                       () => { _fp.SetCells(pr.x, pr.z); Rebuild(); });
+            }
             AddRow("Wider", "+1 cell east-west", false, false, () => { _fp.AdjustFootprintCells(+1, 0); Rebuild(); });
             AddRow("Narrower", "-1 cell east-west", false, false, () => { _fp.AdjustFootprintCells(-1, 0); Rebuild(); });
             AddRow("Deeper", "+1 cell north-south", false, false, () => { _fp.AdjustFootprintCells(0, +1); Rebuild(); });

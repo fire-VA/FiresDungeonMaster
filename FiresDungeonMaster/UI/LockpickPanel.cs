@@ -186,7 +186,7 @@ namespace FiresDungeonMaster.UI
             FiresContextMenu.SuppressDriver = true;
             if (!InputBlock.IsBlocked) InputBlock.Block(true);
             _blocked = true;
-            FiresCore.Input.FiresInputBlock.Acquire(PickToken);
+            InputBlockOwned.Acquire(PickToken, _canvasGo);
             Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
         }
 

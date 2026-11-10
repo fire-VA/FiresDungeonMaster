@@ -24,7 +24,7 @@ namespace FiresDungeonMaster.Editor
             _registered = true;
             _claim = HandleClaim;
             FiresContextMenu.RegisterClaim(_claim);
-            Debug.Log("[FiresDungeonMaster] entry-door context claim registered (Shift+Alt right-click a door).");
+            FiresLogger.LogDebug("[FiresDungeonMaster] entry-door context claim registered (Shift+Alt right-click a door).");
         }
 
         private static bool HandleClaim(ContextTarget target, Vector2 screenPos)
@@ -33,12 +33,9 @@ namespace FiresDungeonMaster.Editor
             if (door == null) return false;                // not a door → let other claims / the shared menu handle it
             if (!EntryDoorController.IsAdmin()) return true; // non-admins can't configure; still claim so no companion menu
 
-            if (viaExitArch)
-                // Interior exit arch → the POST-PLACEMENT dungeon editor (dungeon options + the paired env box).
-                FiresDungeonMaster.UI.DungeonEditPanel.Open(door, door.FindPairedEnvBox());
-            else
-                // Surface entry door → the placement/Generate panel.
-                FiresDungeonMaster.UI.EntryDoorPanel.Open(door);
+            if (!viaExitArch) return false;   // 0.1.199: the surface door uses the entrance menu (ProxyEntrance.PickRow); its panel is the "Door settings..." row
+            // Interior exit arch -> the post-placement dungeon editor (dungeon options + the paired env box).
+            FiresDungeonMaster.UI.DungeonEditPanel.Open(door, door.FindPairedEnvBox());
             return true;
         }
 

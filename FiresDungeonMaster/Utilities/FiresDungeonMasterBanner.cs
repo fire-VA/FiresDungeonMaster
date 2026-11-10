@@ -52,8 +52,8 @@ namespace FiresDungeonMaster
         // source name, without a raw white stdout duplicate.
         private static void EmitHeader(string text)
         {
-            if (FiresDungeonMasterPlugin.Log != null) FiresDungeonMasterPlugin.Log.LogInfo(text);
-            else Debug.Log($"[FiresDungeonMaster] {text}");
+            if (FiresDungeonMasterPlugin.Log != null) FiresDungeonMasterPlugin.Log.LogDebug(text);
+            else FiresLogger.LogDebug($"[FiresDungeonMaster] {text}");
         }
 
         private static Banner.Segment[][] ToSegments((string text, ConsoleColor color)[] lines)

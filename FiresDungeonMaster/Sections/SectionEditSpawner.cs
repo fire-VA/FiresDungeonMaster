@@ -63,7 +63,8 @@ namespace FiresDungeonMaster.Sections
             if (dir.sqrMagnitude < 0.01f) dir = Vector3.forward; else dir.Normalize();
             Vector3 pos = player.transform.position + dir * SpawnForwardDistance;
             Quaternion rot = Quaternion.LookRotation(dir, Vector3.up);
-            if (ZoneSystem.instance != null && ZoneSystem.instance.GetGroundHeight(pos, out float gh)) pos.y = gh;
+            if (Editor.EntranceLink.RingSpawn(player.transform, SpawnForwardDistance, out Vector3 ringPos, out Quaternion ringRot)) { pos = ringPos; rot = ringRot; }   // 0.1.177: on a halo ring's floor
+            else if (ZoneSystem.instance != null && ZoneSystem.instance.GetGroundHeight(pos, out float gh)) pos.y = gh;
 
             GameObject box;
             try { box = UnityEngine.Object.Instantiate(prefab, pos, rot); }
@@ -108,7 +109,8 @@ namespace FiresDungeonMaster.Sections
             if (dir.sqrMagnitude < 0.01f) dir = Vector3.forward; else dir.Normalize();
             Vector3 pos = player.transform.position + dir * SpawnForwardDistance;
             Quaternion rot = Quaternion.LookRotation(dir, Vector3.up);
-            if (ZoneSystem.instance != null && ZoneSystem.instance.GetGroundHeight(pos, out float gh)) pos.y = gh;
+            if (Editor.EntranceLink.RingSpawn(player.transform, SpawnForwardDistance, out Vector3 ringPos, out Quaternion ringRot)) { pos = ringPos; rot = ringRot; }   // 0.1.177: on a halo ring's floor
+            else if (ZoneSystem.instance != null && ZoneSystem.instance.GetGroundHeight(pos, out float gh)) pos.y = gh;
 
             GameObject box;
             try { box = UnityEngine.Object.Instantiate(prefab, pos, rot); }

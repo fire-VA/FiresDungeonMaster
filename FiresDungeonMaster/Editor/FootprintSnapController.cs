@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
@@ -36,7 +36,9 @@ namespace FiresDungeonMaster.Editor
         private static bool IsClientOnly()
             => SystemInfo.graphicsDeviceType == GraphicsDeviceType.Null;
 
-        [HarmonyPostfix]
+        // 0.1.178: runs AFTER Core's ring-ghost postfix (RingPlacement, default priority), which tilts the ghost by the ring's up every frame;
+        // the snap's rotation is already upright to the ring (SectionSnapping 0.1.177), so it must be the last word, not tilted twice
+        [HarmonyPostfix, HarmonyPriority(Priority.Low)]
         private static void Postfix(Player __instance)
         {
             if (IsClientOnly()) return;

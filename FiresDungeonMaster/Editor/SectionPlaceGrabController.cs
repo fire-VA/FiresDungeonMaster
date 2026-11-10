@@ -141,12 +141,13 @@ namespace FiresDungeonMaster.Editor
             if (Input.GetKeyDown(KeyCode.R)) _yaw = (_yaw + 90f) % 360f;
             if (Input.GetKeyDown(KeyCode.Keypad0) || Input.GetKeyDown(KeyCode.Home)) { _height = 0f; _yaw = 0f; }
 
-            _pos = _aim + Vector3.up * _height;
+            Vector3 up = EntranceLink.UpAt(_aim);   // 0.1.177: a halo ring's up (world up elsewhere)
+            _pos = _aim + up * _height;
             if (_preview != null)
             {
                 // Piece-ghost is floor-anchored (sits ON the aim); the sizing cube is centre-anchored (+half height).
-                Vector3 previewPos = _isGhost ? _pos : _pos + Vector3.up * (_preview.transform.localScale.y * 0.5f);
-                _preview.transform.SetPositionAndRotation(previewPos, Quaternion.Euler(0f, _yaw, 0f));
+                Vector3 previewPos = _isGhost ? _pos : _pos + up * (_preview.transform.localScale.y * 0.5f);
+                _preview.transform.SetPositionAndRotation(previewPos, Quaternion.FromToRotation(Vector3.up, up) * Quaternion.Euler(0f, _yaw, 0f));
             }
 
             if (!Input.GetMouseButton(0)) _armed = true;
@@ -156,7 +157,7 @@ namespace FiresDungeonMaster.Editor
 
         private void Place()
         {
-            var rot = Quaternion.Euler(0f, _yaw, 0f);
+            var rot = Quaternion.FromToRotation(Vector3.up, EntranceLink.UpAt(_aim)) * Quaternion.Euler(0f, _yaw, 0f);   // 0.1.177: stands on a halo ring's floor
             // Raw Place (bench "Place" on a PlanBuild blueprint): drop the blueprint directly at the aim — no editable box.
             if (FiresDungeonMaster.Sections.SectionEditSpawner.RawPending != null)
             {

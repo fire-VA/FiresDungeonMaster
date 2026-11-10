@@ -489,7 +489,7 @@ namespace FiresDungeonMaster.UI
         }
 
         /// <summary>
-        /// Client-only hotkey + Esc-close driver. F8-free default bind is Shift+B (open/close the browser); Esc closes
+        /// Client-only hotkey + Esc-close driver. the bind is the "Section Archive key" config (default Shift+Y; was Shift+B, which clashed with VABackpacks' pack-up); Esc closes
         /// it while open. Skipped on a dedicated server (the Hud patch is in the dedi-skip set, and the body guards on
         /// IsClientOnly anyway). Hooking Hud.Update keeps us off a per-frame MonoBehaviour of our own.
         /// </summary>
@@ -504,11 +504,12 @@ namespace FiresDungeonMaster.UI
                 if (Console.IsVisible() || (Chat.instance != null && Chat.instance.HasFocus())) return;
                 // Raw Input bypasses the Core ZInput/KeyboardShortcut gate, so a 'B' typed into any Fires text field
                 // (e.g. a door's Display Name) would fire this. Honour the text-capture flag explicitly.
-                if (FiresCore.Input.FiresInputBlock.IsCapturing) return;
+                if (TypingGate.Typing) return;
 
-                // Shift+B now opens the BAKED blueprint bench (this old KG-clone browser is superseded).
+                // The Section Archive key opens the BAKED blueprint bench (this old KG-clone browser is superseded).
                 // ADMIN ONLY — the bench is dungeon-authoring tooling (save/place sections, generate dungeons).
-                if (Input.GetKey(KeyCode.LeftShift) && Input.GetKeyDown(KeyCode.B))
+                // 0.1.123: the configurable "Section Archive key" (default Shift+Y) through Core's gameplay chord check (the text-capture gate is above)
+                if (DungeonMasterConfig.SectionArchiveKey != null && FiresCore.Input.Chord.IsDown(DungeonMasterConfig.SectionArchiveKey.Value))
                 {
                     if (!FiresDungeonMaster.Editor.SectionFootprintController.IsAdmin()) return;
                     BlueprintBenchPanel.Toggle();

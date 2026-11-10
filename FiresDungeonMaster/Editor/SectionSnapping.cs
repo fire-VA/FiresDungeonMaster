@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace FiresDungeonMaster.Editor
@@ -29,6 +29,7 @@ namespace FiresDungeonMaster.Editor
             public Vector3 WorldNormal;     // world outward normal of that doorway edge (XZ)
             public SectionFootprintController.EdgeTag Tag;             // Doorway or Open
             public int Face;                // target face index (N/E/S/W) — for stable ordering
+            public Vector3 Up;              // 0.1.177: the local up at the doorway (a halo ring's up; zero = world up)
         }
 
         /// <summary>A candidate doorway on the MOVING piece, expressed in its local space.</summary>
@@ -55,6 +56,8 @@ namespace FiresDungeonMaster.Editor
         public static void CollectDoorways(SectionFootprintController fp, List<DoorwayTarget> outList)
         {
             if (fp == null) return;
+            Vector3 up = EntranceLink.UpAt(fp.transform.position);   // 0.1.177: the dungeon plane is the ring's floor on a halo ring
+            if (up != Vector3.up && !s_ringLogged) { s_ringLogged = true; FiresLogger.LogDebug($"[FiresDungeonMaster] halo ring: section snapping on the ring's floor (up {up.x:F2},{up.y:F2},{up.z:F2})"); }
             for (int face = 0; face < SectionFootprintController.FaceCount; face++)
             {
                 SectionFootprintController.EdgeTag tag = fp.GetEdgeTag(face);
@@ -62,9 +65,10 @@ namespace FiresDungeonMaster.Editor
                 outList.Add(new DoorwayTarget
                 {
                     WorldMidpoint = fp.EdgeWorldMidpoint(face),
-                    WorldNormal = Flatten(fp.EdgeWorldNormal(face)),
+                    WorldNormal = Vector3.ProjectOnPlane(fp.EdgeWorldNormal(face), up),
                     Tag = tag,
                     Face = face,
+                    Up = up,
                 });
             }
         }
@@ -116,7 +120,7 @@ namespace FiresDungeonMaster.Editor
                 foreach (var m in movingDoors)
                 {
                     // Yaw that makes the chosen moving normal anti-parallel to the target normal.
-                    Quaternion rot = SolveRotation(t.WorldNormal, m.LocalNormal);
+                    Quaternion rot = SolveRotation(t.WorldNormal, m.LocalNormal, t.Up);
                     Vector3 pos = SolvePosition(rot, m.LocalMidpoint, t.WorldMidpoint);
 
                     // Rank by how far the snapped position moves the piece from the cursor; the join is
@@ -160,6 +164,16 @@ namespace FiresDungeonMaster.Editor
             float movingYaw = Mathf.Atan2(have.x, have.z) * Mathf.Rad2Deg;
             return Quaternion.Euler(0f, targetYaw - movingYaw, 0f);
         }
+
+        /// <summary>0.1.177: the same yaw solve on the floor plane of <paramref name="up"/> (a halo ring's up; zero or world up = the flat solve above).</summary>
+        public static Quaternion SolveRotation(Vector3 targetWorldNormal, Vector3 movingLocalNormal, Vector3 up)
+        {
+            if (up.sqrMagnitude < 0.5f || up == Vector3.up) return SolveRotation(targetWorldNormal, movingLocalNormal);
+            Quaternion frame = Quaternion.FromToRotation(Vector3.up, up);
+            return frame * SolveRotation(Quaternion.Inverse(frame) * targetWorldNormal, movingLocalNormal);
+        }
+
+        private static bool s_ringLogged;
 
         /// <summary>World position so that rot*localMidpoint lands on targetWorldMidpoint (origin solve).</summary>
         public static Vector3 SolvePosition(Quaternion rot, Vector3 localMidpoint, Vector3 targetWorldMidpoint)

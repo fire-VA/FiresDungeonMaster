@@ -24,7 +24,8 @@ namespace FiresDungeonMaster
     {
         public const string PluginGUID = "com.Fire.FiresDungeonMaster";
         public const string PluginName = "FiresDungeonMaster";
-        public const string PluginVersion = "0.1.122";
+        public const string PluginVersion = "0.1.202";   // 0.1.202 ([seasons], Fire 11-03): recurring and proof lines at Debug level; Info = loaded + errors.  // 0.1.201 ([seasons], Fire 11-02): no stock location loads at login; a dungeon type copies its tuning when it generates.  // 0.1.200 ([seasons], Fire 11-02): a pick resets every FAP entrance first, so FAP's sky floor never stays inside a dungeon.  // 0.1.199 ([seasons], Fire 11-02): an Entry Door works like a proxy entrance: empty box on placing, the same Pick dungeon + Empty menu; its panel is a row.  // 0.1.198 ([seasons], Fire 11-02): any FAP entrance takes a pick, a Fully generated one is reset to empty first.  // 0.1.197 ([seasons], Fire 11-02): a dungeon room placed on the ground no longer makes an Entry Door or box; config "Entrance makes its box" removed.  // 0.1.196 ([seasons], Fire 11-02): zone clear refuses a zone holding any other location.  // 0.1.195:   // 0.1.195 ([seasons], Fire 11-02, read from the 1.0 rip): picks are the teleport dungeons only, adding Morkhalla (MorkBorg) and The Hole (TheHole01) with vanilla environments; camps not offered; zone clear counts entrances by m_hasInterior.  // 0.1.193:   // 0.1.193 ([seasons], Fire 11-02): Pick dungeon is a row in Core's context menu; Shift+use is gone.  // 0.1.192:   // 0.1.192 ([seasons], Fire 11-02): Pick dungeon on FAP's entrance menu; Shift+use only without that menu.  // 0.1.191:   // 0.1.191 ([seasons]): rooms regenerated later (Core heal + resize, Studio) keep the dungeon id.  // 0.1.190:   // 0.1.190 ([seasons], Fire 11-02): config 'Clear zone on last entrance' (off).  // 0.1.189:   // 0.1.189 ([seasons], Fire 11-02): blueprint bench folder tree, Move to folder, New folder, delete confirm, list thumbnails; parsing and rendering spread over frames.  // 0.1.188:   // 0.1.188 ([seasons], Fire 11-02): a FAP entrance gets the dungeon pick (admin Shift+E), holds the dungeon id, enters it and tears it down.  // 0.1.187:   // 0.1.187 ([seasons], Fire 11-02): pick a dungeon at the entrance; picking replaces the box; entrance or door removal tears down by dungeon id, never by volume, on a dedi too; generate from a client works from the ZDO + RPC config; 4 more 1.0 interiors; dungeon pieces admin only.   // 0.1.186 ([seasons], [visual] 10-29): FdmApi never removes the dungeon env box on regenerate / swap / restore; GetEnvBox(dungeon) -> its Studio key.   // 0.1.185 ([seasons], round L: undo refused "snapshot hash mismatch"): the snapshot hash compares case-blind (Studio Link stores lower-case hex) and a mismatch names both hashes.   // 0.1.184 ([seasons], round J log: "Room ... wasn't loaded!"): FdmApi reads room size + connections with a Load / Release pair (cached), never RoomInPrefab on a released room.   // 0.1.183 ([seasons], round I proof: ListDungeons threw EndOfStreamException): FdmApi reads / writes roomData with vanilla's own BinaryReader/Writer Vector3 + Quaternion extensions.   // 0.1.182 ([seasons], Fire 10-29): FdmApi edit lines carry Debug timing (ms) and log at Debug.   // 0.1.181 ([seasons], Fire 10-29 Studio WP12): public FdmApi (ListDungeons / ListRooms / SwapCandidates / Regenerate / SwapRoom / Restore / Peek) for Studio Link, host only, snapshot undo.   // 0.1.180 ([seasons], Fire 10-26): generated pieces get Infinity Hammer's placement settings via Core InfinityHammerPlacement (soft).   // 0.1.174 (10-23 security audit: door generate result only from the server + message clamp; door config validated against known lists before generation)
+        public const string SyncMinimumVersion = "0.1.187";
 
         internal static BepInEx.Logging.ManualLogSource Log;
 
@@ -40,7 +41,10 @@ namespace FiresDungeonMaster
                 "FiresDungeonMaster.FootprintCategoryRegistry+Hud_Awake_GrowTabs_Patch",
                 // P5: client-only placement-ghost doorway snap. Player + m_placementGhost are client-side only.
                 "FiresDungeonMaster.Editor.FootprintSnapController",
-                // P7: client-only saved-section browser hotkey (Shift+B). Touches Hud/Player/Console/Chat — skip headless.
+                // 0.1.125: dungeon presets window input gate (Player.TakeInput, client-only). Skip on a dedi.
+                "FiresDungeonMaster.UI.DungeonPresetUI+Player_TakeInput_Patch",
+                "FiresDungeonMaster.UI.EnvBoxPresetUI+Player_TakeInput_Patch",
+                // P7: client-only saved-section browser hotkey (config "Section Archive key", default Shift+Y). Touches Hud/Player/Console/Chat — skip headless.
                 "FiresDungeonMaster.UI.SectionBrowserUI+Hud_Update_Hotkey_Patch",
                 // Blueprint bench Esc/cursor driver — patches Hud.Update (client-only type). Skip on a dedi.
                 "FiresDungeonMaster.UI.BlueprintBenchPanel+Hud_Update_Patch",
@@ -71,11 +75,15 @@ namespace FiresDungeonMaster
             {
                 DisplayName = PluginName,
                 CurrentVersion = PluginVersion,
-                MinimumRequiredVersion = PluginVersion,
+                // Fixed (lead 10-13): raise only when a synced key's name, type or meaning changes.
+                MinimumRequiredVersion = SyncMinimumVersion,
             };
 
             // Section authoring config (centerpoint fallback prefab, ...). Bound before any save can run.
             DungeonMasterConfig.Bind(Config);
+            // 0.1.170 (Fire 10-20 player-facing config rule): without Show Advanced only the keybinds and the two hammer toggles show
+            FiresCore.Config.FiresConfigVisibility.MarkAdvanced(Config, d =>
+                !(d.Key.EndsWith(" key", System.StringComparison.Ordinal) || d.Key == "Rooms on the hammer" || d.Key == "Dungeons build tab"));
 
             // Load the editor bundle + acquire the footprint prefab(s). The ZNetScene.Awake / ObjectDB.Awake /
             // PieceTable.UpdateAvailable / Hud.Awake Harmony patches in Ascend.cs are auto-discovered by the

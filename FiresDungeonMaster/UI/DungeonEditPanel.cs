@@ -86,7 +86,7 @@ namespace FiresDungeonMaster.UI
             FiresContextMenu.SuppressDriver = true;
             if (!InputBlock.IsBlocked) InputBlock.Block(true);
             _blocked = true;
-            FiresCore.Input.FiresInputBlock.Acquire(PanelToken);
+            InputBlockOwned.Acquire(PanelToken, _canvasGo);
             Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
 
             Rebuild();

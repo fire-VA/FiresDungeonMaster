@@ -45,6 +45,25 @@ namespace FiresDungeonMaster.UI
         private static TMP_InputField _searchInput;          // the NameText node repurposed as a search field
         private static string _filter = "";                  // live name filter typed into the search field
         private static List<SectionBlueprint> _loadedSections = new List<SectionBlueprint>();   // cached so typing doesn't re-read disk
+        // 0.1.189 (Fire 11-02: organise and see blueprints in the bench): folder tree, Move, New folder, delete confirm, list thumbnails.
+        private const int ThumbSize = 128;
+        private const int ThumbMaxPieces = 300;      // a bigger blueprint would stall a frame: no list thumbnail, its preview still shows when selected
+        private const int ThumbFrameGap = 4;
+        private const float ParseBudgetSeconds = 0.006f;
+        private const float ConfirmSeconds = 4f;
+        private static List<string> _folders = new List<string>();
+        private static readonly HashSet<string> _openFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static string _selectedFolder = "";
+        private static bool _moveArmed, _naming, _loading;
+        private static GameObject _moveBtn, _newFolderBtn;
+        private static TMP_Text _moveLabel, _deleteLabel;
+        private static string _deleteLabelText;
+        private static float _deleteArmedAt = -100f;
+        private static BenchRunner _runner;
+        private static TMP_Text _searchPlaceholder;
+        private static readonly Dictionary<string, Sprite> _thumbs = new Dictionary<string, Sprite>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Dictionary<string, Image> _thumbRows = new Dictionary<string, Image>(StringComparer.OrdinalIgnoreCase);
+        private static readonly Queue<SectionBlueprint> _thumbQueue = new Queue<SectionBlueprint>();
         private static readonly Color SelClear = new Color(1f, 1f, 1f, 0f);
         private static readonly Color SelActive = new Color(1f, 0.824f, 0.541f, 0.28f);   // amber selection
 
@@ -68,6 +87,7 @@ namespace FiresDungeonMaster.UI
 
         public static void Hide()
         {
+            SaveWindow();
             if (_canvasGo != null) _canvasGo.SetActive(false);
             if (_blocked) { FiresCore.UI.InputBlock.Block(false); _blocked = false; }
             SetCrosshair(true);
@@ -100,6 +120,7 @@ namespace FiresDungeonMaster.UI
                 rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f); rt.anchoredPosition = Vector2.zero;
 
                 Bind();
+                RestoreWindow();
                 _canvasGo.SetActive(false);
                 return true;
             }
@@ -125,6 +146,7 @@ namespace FiresDungeonMaster.UI
             if (grip != null)
             {
                 var img = grip.GetComponent<Image>(); if (img != null) img.raycastTarget = true;
+                GripFix.Apply(grip, "BlueprintBenchPanel");   // 0.1.128: a real grip, not a plain square
                 var r = grip.GetComponent<DragResize>() ?? grip.AddComponent<DragResize>(); r.Target = _panel.GetComponent<RectTransform>(); r.MinSize = new Vector2(760f, 480f);
             }
 
@@ -133,6 +155,8 @@ namespace FiresDungeonMaster.UI
             _content = BuildPoolScroll();
             BuildModeToggle();
             BuildSearchField();
+            BuildOrganiseButtons();
+            _runner = _panel.AddComponent<BenchRunner>();
             FiresLogger.LogInfo($"[BENCH-DBG] bound: catTemplate={( _catTemplate != null)} entryTemplate={(_entryTemplate != null)} content={(_content != null)}");
         }
 
@@ -177,6 +201,7 @@ namespace FiresDungeonMaster.UI
             var text = MakeText("Text");
             text.color = _nameT.color;
             var ph = MakeText("Placeholder");
+            _searchPlaceholder = ph;
             ph.fontStyle = FontStyles.Italic; ph.color = new Color(0.56f, 0.69f, 0.90f, 0.55f); ph.text = "Search blueprints…";
 
             var input = field.GetComponent<TMP_InputField>();
@@ -188,6 +213,8 @@ namespace FiresDungeonMaster.UI
             input.customCaretColor = true; input.caretColor = new Color(0.92f, 0.95f, 1f, 1f); input.caretWidth = 2;
             input.selectionColor = new Color(0.40f, 0.62f, 0.82f, 0.5f);
             input.onValueChanged.AddListener(OnSearchChanged);
+            input.onSubmit.AddListener(OnFieldSubmit);
+            input.onDeselect.AddListener(_ => { if (_naming) EndNaming(); });
             _searchInput = input;
 
             _nameT.gameObject.SetActive(false);   // the field now owns the name display
@@ -196,6 +223,7 @@ namespace FiresDungeonMaster.UI
         // Typing in the search field filters the cached list (no disk re-read) without disturbing the current selection.
         private static void OnSearchChanged(string value)
         {
+            if (_naming) return;
             _filter = value ?? "";
             BuildList();
         }
@@ -228,6 +256,7 @@ namespace FiresDungeonMaster.UI
                 Sfx();
                 _showBlueprints = !_showBlueprints;
                 _current = null; _currentSet = null;
+                _moveArmed = false; EndNaming();
                 UpdateModeLabel();
                 Populate();
             });
@@ -237,6 +266,8 @@ namespace FiresDungeonMaster.UI
         private static void UpdateModeLabel()
         {
             if (_modeLabel != null) _modeLabel.text = _showBlueprints ? "◄ PlanBuild Blueprints ►" : "◄ DM Sections ►";
+            if (_moveBtn != null) _moveBtn.SetActive(_showBlueprints);
+            if (_newFolderBtn != null) _newFolderBtn.SetActive(_showBlueprints);
         }
 
         // ── scroll (baked SectionPool → runtime RectMask2D) ──────────────────────────
@@ -307,7 +338,8 @@ namespace FiresDungeonMaster.UI
             // result so typing in the search field re-filters without re-reading disk each keystroke.
             if (_showBlueprints)
             {
-                _loadedSections = LoadPlanBuildBlueprints();
+                if (_runner != null) { _runner.StartLoad(); return; }
+                _loadedSections = new List<SectionBlueprint>();
             }
             else
             {
@@ -325,6 +357,7 @@ namespace FiresDungeonMaster.UI
             ClearList();
 
             var sections = _loadedSections ?? new List<SectionBlueprint>();
+            if (_showBlueprints) { BuildFolderTree(sections); ForceLayout(); return; }
 
             // Collapse a diced set's N cells into ONE display unit (grouped by SetId); standalone sections stay as-is.
             var setGroups = sections.Where(s => s.IsSetMember)
@@ -357,36 +390,24 @@ namespace FiresDungeonMaster.UI
         }
 
         // ── PlanBuild folder reader (mirrors FAP's VABlueprintLoader roots) ──────────────
-        // Parse every .blueprint/.vbuild found in the PlanBuild / Infinity-Hammer / FAP drop folders into a
-        // SectionBlueprint (same IH format the schema already reads). De-duped by full path.
-        private static List<SectionBlueprint> LoadPlanBuildBlueprints()
+        // 0.1.189: parsed over frames by BenchRunner, including every folder below PlanBuild. De-duped by full path.
+        private static SectionBlueprint ParsePlain(string full)
         {
-            var result = new List<SectionBlueprint>();
-            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var path in EnumeratePlanBuildFiles())
+            try
             {
-                string full;
-                try { full = System.IO.Path.GetFullPath(path); } catch { continue; }
-                if (!seen.Add(full)) continue;
-                try
-                {
-                    var bp = SectionSchema.ParseFile(path);
-                    if (bp == null || bp.Objects == null || bp.Objects.Count == 0) continue;
-                    if (bp.IsDungeonSection) continue;   // DM sections show under the DM Sections tab, not PlanBuild Blueprints
-                    // FAP-style: the FILE name IS the saved blueprint name — the in-file #name is PlanBuild's auto
-                    // "Multiple (<count>)", which is what was showing wrong.
-                    bp.Name = System.IO.Path.GetFileNameWithoutExtension(path);
-                    bp.SectionId = bp.Name;
-                    bp.SourcePath = full;   // kept so Place can hand the real file to Infinity Hammer's own command
-                    result.Add(bp);
-                }
-                catch (Exception ex) { FiresLogger.LogWarning($"planbuild parse '{System.IO.Path.GetFileName(path)}': {ex.Message}"); }
+                var bp = SectionSchema.ParseFile(full);
+                if (bp == null || bp.Objects == null || bp.Objects.Count == 0 || bp.IsDungeonSection) return null;   // DM sections show under the DM Sections tab
+                // FAP-style: the FILE name IS the saved blueprint name; the in-file #name is PlanBuild's auto "Multiple (<count>)".
+                bp.Name = System.IO.Path.GetFileNameWithoutExtension(full);
+                bp.SectionId = bp.Name;
+                bp.SourcePath = full;   // kept so Place can hand the real file to Infinity Hammer's own command
+                return bp;
             }
-            FiresLogger.LogInfo($"PlanBuild reader: {result.Count} blueprint(s) found.");
-            return result;
+            catch (Exception ex) { FiresLogger.LogWarning($"planbuild parse '{System.IO.Path.GetFileName(full)}': {ex.Message}"); return null; }
         }
 
         private static IEnumerable<string> EnumeratePlanBuildFiles()
+
         {
             string cfg = BepInEx.Paths.ConfigPath;
             var roots = new List<string>
@@ -403,6 +424,9 @@ namespace FiresDungeonMaster.UI
                 roots.Add(System.IO.Path.Combine(steam, "Valheim", "BepInEx", "config", "PlanBuild"));
                 roots.Add(System.IO.Path.Combine(steam, "Valheim dedicated server", "BepInEx", "config", "PlanBuild", "blueprints"));
             }
+            var tree = new List<string> { BlueprintFolders.Root };
+            tree.AddRange(BlueprintFolders.ListFolders().Select(r => System.IO.Path.Combine(BlueprintFolders.Root, r)));
+            roots.InsertRange(0, tree);
             foreach (var root in roots)
             {
                 if (string.IsNullOrEmpty(root) || !System.IO.Directory.Exists(root)) continue;
@@ -459,6 +483,7 @@ namespace FiresDungeonMaster.UI
             btn.onClick.RemoveAllListeners();
             var capRep = rep; var capSet = setCells; var capGo = e;
             btn.onClick.AddListener(() => { Sfx(); ShowUnit(capGo, capRep, capSet); });
+            if (_showBlueprints && !isSet && !string.IsNullOrEmpty(rep.SourcePath)) AddThumb(e, rep);
         }
 
         // ── selection / detail ───────────────────────────────────────────────────────
@@ -618,6 +643,23 @@ namespace FiresDungeonMaster.UI
         private static void OnDelete()
         {
             Sfx();
+            if (_current == null && _currentSet == null) return;
+            if (Time.unscaledTime - _deleteArmedAt > ConfirmSeconds)
+            {
+                _deleteArmedAt = Time.unscaledTime;
+                if (_deleteLabel != null) _deleteLabel.text = "Confirm?";
+                Message($"delete '{UnitLabel(_current, _currentSet)}'? Press again to delete it for good.");
+                return;
+            }
+            _deleteArmedAt = -100f;
+            if (_deleteLabel != null) _deleteLabel.text = _deleteLabelText;
+            if (_showBlueprints)
+            {
+                string bad = BlueprintFolders.Delete(_current.SourcePath);
+                Message(bad ?? $"deleted '{_current.Name}'.");
+                if (bad == null) { _loadedSections.Remove(_current); ResetDetail(); BuildList(); }
+                return;
+            }
             try
             {
                 var lib = FdmPaths.OpenLibrary();
@@ -634,6 +676,243 @@ namespace FiresDungeonMaster.UI
                 _current = null; Populate();
             }
             catch (Exception ex) { Message("delete failed: " + ex.Message); }
+        }
+
+        // ── folders, move, new folder (0.1.189) ─────────────────────────────────────────
+        private static void BuildFolderTree(List<SectionBlueprint> sections)
+        {
+            _thumbRows.Clear();
+            string f = _filter != null ? _filter.Trim() : "";
+            var shown = f.Length == 0 ? sections : sections.Where(s => (s.Name ?? "").IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            if (_sectCount != null) _sectCount.text = sections.Count + " ON FILE" + (f.Length > 0 ? $"  ·  {shown.Count} SHOWN" : "") + (_loading ? "  ·  LOADING" : "");
+            var byFolder = shown.Where(s => BlueprintFolders.IsInside(s.SourcePath)).ToLookup(s => BlueprintFolders.Relative(System.IO.Path.GetDirectoryName(s.SourcePath)), StringComparer.OrdinalIgnoreCase);
+            AddFolderRow("", "PlanBuild", 0, sections.Count(s => BlueprintFolders.IsInside(s.SourcePath)), true);
+            foreach (var bp in byFolder[""].OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)) AddEntry(_content, bp, null);
+            foreach (var rel in _folders)
+            {
+                string parent = System.IO.Path.GetDirectoryName(rel) ?? "";
+                if (f.Length > 0 ? !byFolder.Any(g => g.Key.Equals(rel, StringComparison.OrdinalIgnoreCase) || g.Key.StartsWith(rel + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) : !AncestorsOpen(parent)) continue;
+                bool open = f.Length > 0 || _openFolders.Contains(rel);
+                AddFolderRow(rel, System.IO.Path.GetFileName(rel), rel.Count(c => c == System.IO.Path.DirectorySeparatorChar) + 1, byFolder[rel].Count(), open);
+                if (open) foreach (var bp in byFolder[rel].OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)) AddEntry(_content, bp, null);
+            }
+            var others = shown.Where(s => !BlueprintFolders.IsInside(s.SourcePath)).OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase).ToList();
+            if (others.Count > 0)
+            {
+                AddCategory("OTHER MOD FOLDERS (READ ONLY)");
+                foreach (var bp in others) AddEntry(_content, bp, null);
+            }
+        }
+
+        private static bool AncestorsOpen(string rel)
+        {
+            for (string p = rel; !string.IsNullOrEmpty(p); p = System.IO.Path.GetDirectoryName(p))
+                if (!_openFolders.Contains(p)) return false;
+            return true;
+        }
+
+        private static void AddFolderRow(string rel, string name, int depth, int count, bool open)
+        {
+            AddCategory(new string(' ', depth * 3) + (rel.Length > 0 ? (open ? "▼ " : "► ") : "") + name + "  (" + count + ")");
+            var cat = _content.GetChild(_content.childCount - 1).gameObject;
+            var b = cat.GetComponentInChildren<Button>(true) ?? cat.AddComponent<Button>();
+            b.onClick.RemoveAllListeners();
+            b.onClick.AddListener(() => OnFolderClicked(rel));
+        }
+
+        private static void OnFolderClicked(string rel)
+        {
+            Sfx();
+            if (_moveArmed)
+            {
+                _moveArmed = false;
+                if (_moveLabel != null) _moveLabel.text = "Move to folder";
+                if (_current == null) return;
+                string bad = BlueprintFolders.Move(_current.SourcePath, rel, out string moved);
+                if (bad != null) { Message("not moved: " + bad); return; }
+                _current.SourcePath = moved;
+                Message($"moved '{_current.Name}' to {(rel.Length == 0 ? "PlanBuild" : rel)}.");
+                if (rel.Length > 0) _openFolders.Add(rel);
+                BuildList();
+                return;
+            }
+            _selectedFolder = rel;
+            if (rel.Length > 0 && !_openFolders.Remove(rel)) _openFolders.Add(rel);
+            BuildList();
+        }
+
+        private static void OnMove()
+        {
+            Sfx();
+            if (_current == null) { Message("select a blueprint first."); return; }
+            if (!BlueprintFolders.IsInside(_current.SourcePath)) { Message("this blueprint belongs to another mod's folder, so it cannot be moved."); return; }
+            _moveArmed = !_moveArmed;
+            if (_moveLabel != null) _moveLabel.text = _moveArmed ? "Click a folder (cancel)" : "Move to folder";
+        }
+
+        private static void OnNewFolder()
+        {
+            Sfx();
+            if (_searchInput == null) return;
+            _naming = true;
+            _searchInput.SetTextWithoutNotify("");
+            if (_searchPlaceholder != null) _searchPlaceholder.text = $"New folder in {(_selectedFolder.Length == 0 ? "PlanBuild" : _selectedFolder)}: type, Enter";
+            _searchInput.ActivateInputField();
+        }
+
+        private static void OnFieldSubmit(string value)
+        {
+            if (!_naming) return;
+            string parent = _selectedFolder;
+            EndNaming();
+            string bad = BlueprintFolders.NewFolder(parent, (value ?? "").Trim());
+            if (bad != null) { Message("no folder made: " + bad); return; }
+            _folders = BlueprintFolders.ListFolders();
+            if (parent.Length > 0) _openFolders.Add(parent);
+            Message($"folder '{value.Trim()}' made.");
+            BuildList();
+        }
+
+        private static void EndNaming()
+        {
+            _naming = false;
+            if (_searchPlaceholder != null) _searchPlaceholder.text = "Search blueprints…";
+            if (_searchInput != null) _searchInput.SetTextWithoutNotify(_current != null ? UnitLabel(_current, _currentSet) : "");
+        }
+
+        // Two more buttons cloned from the baked Delete button, stacked above it, so they share its look.
+        private static void BuildOrganiseButtons()
+        {
+            var del = Find("DeleteButton");
+            if (del == null) return;
+            _deleteLabel = del.GetComponentInChildren<TMP_Text>(true);
+            _deleteLabelText = _deleteLabel != null ? _deleteLabel.text : "Delete";
+            GameObject Clone(string name, string label, int slot, Action click)
+            {
+                var go = UnityEngine.Object.Instantiate(del, del.transform.parent);
+                go.name = name;
+                var rt = (RectTransform)go.transform;
+                rt.anchoredPosition += new Vector2(0f, ((RectTransform)del.transform).rect.height * 1.15f * slot);
+                var t = go.GetComponentInChildren<TMP_Text>(true);
+                if (t != null) t.text = label;
+                var b = go.GetComponent<Button>();
+                b.onClick.RemoveAllListeners();
+                b.onClick.AddListener(() => click());
+                return go;
+            }
+            _moveBtn = Clone("MoveButton", "Move to folder", 1, OnMove);
+            _moveLabel = _moveBtn.GetComponentInChildren<TMP_Text>(true);
+            _newFolderBtn = Clone("NewFolderButton", "New folder", 2, OnNewFolder);
+            UpdateModeLabel();
+        }
+
+        private static void RestoreWindow()
+        {
+            var rt = _panel.GetComponent<RectTransform>();
+            if (!PlayerPrefs.HasKey("FDM_Bench_X")) return;
+            rt.anchoredPosition = new Vector2(PlayerPrefs.GetFloat("FDM_Bench_X"), PlayerPrefs.GetFloat("FDM_Bench_Y"));
+            rt.sizeDelta = new Vector2(Mathf.Max(760f, PlayerPrefs.GetFloat("FDM_Bench_W")), Mathf.Max(480f, PlayerPrefs.GetFloat("FDM_Bench_H")));
+        }
+
+        private static void SaveWindow()
+        {
+            if (_panel == null) return;
+            var rt = _panel.GetComponent<RectTransform>();
+            PlayerPrefs.SetFloat("FDM_Bench_X", rt.anchoredPosition.x); PlayerPrefs.SetFloat("FDM_Bench_Y", rt.anchoredPosition.y);
+            PlayerPrefs.SetFloat("FDM_Bench_W", rt.sizeDelta.x); PlayerPrefs.SetFloat("FDM_Bench_H", rt.sizeDelta.y);
+        }
+
+        // Thumbnail on a list row: from memory, else the disk cache or a render through BenchRunner's queue.
+        private static void AddThumb(GameObject row, SectionBlueprint bp)
+        {
+            var go = new GameObject("Thumb", typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(row.transform, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = new Vector2(0f, 0.5f); rt.anchorMax = new Vector2(0f, 0.5f); rt.pivot = new Vector2(0f, 0.5f);
+            rt.anchoredPosition = new Vector2(2f, 0f); rt.sizeDelta = new Vector2(30f, 30f);
+            var img = go.GetComponent<Image>();
+            img.raycastTarget = false; img.preserveAspect = true; img.color = new Color(0.06f, 0.16f, 0.32f, 0.6f);
+            foreach (var n in new[] { "Name", "Meta" })
+            {
+                var t = row.transform.Find(n) as RectTransform;
+                if (t != null) t.offsetMin = new Vector2(Mathf.Max(t.offsetMin.x, 36f), t.offsetMin.y);
+            }
+            _thumbRows[bp.SourcePath] = img;
+            if (_thumbs.TryGetValue(bp.SourcePath, out var s)) { img.sprite = s; img.color = Color.white; }
+        }
+
+        private static string ThumbFile(SectionBlueprint bp)
+        {
+            long stamp = System.IO.File.GetLastWriteTimeUtc(bp.SourcePath).Ticks;
+            int hash = (bp.Name + "|" + stamp).GetStableHashCode();
+            return System.IO.Path.Combine(BepInEx.Paths.CachePath, "FiresDungeonMaster", "bpthumbs", hash.ToString("X8") + ".png");
+        }
+
+        private static void ShowThumb(SectionBlueprint bp, byte[] png)
+        {
+            var tex = new Texture2D(2, 2, TextureFormat.RGB24, false);
+            if (!ImageCodec.Load(tex, png)) { UnityEngine.Object.Destroy(tex); return; }
+            var sp = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height), new Vector2(0.5f, 0.5f), 100f);
+            _thumbs[bp.SourcePath] = sp;
+            if (_thumbRows.TryGetValue(bp.SourcePath, out var img) && img != null) { img.sprite = sp; img.color = Color.white; }
+        }
+
+        /// <summary>Spreads the PlanBuild tab's work: blueprints parse within a time budget per frame; one thumbnail per few frames, only while the bench is open.</summary>
+        private sealed class BenchRunner : MonoBehaviour
+        {
+            private Coroutine _load;
+            private int _gap;
+
+            internal void StartLoad()
+            {
+                if (_load != null) StopCoroutine(_load);
+                _load = StartCoroutine(Load());
+            }
+
+            private System.Collections.IEnumerator Load()
+            {
+                _loading = true;
+                _thumbQueue.Clear();
+                _folders = BlueprintFolders.ListFolders();
+                var result = new List<SectionBlueprint>();
+                _loadedSections = result;
+                BuildList();
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                float sliceEnd = Time.realtimeSinceStartup + ParseBudgetSeconds;
+                foreach (var path in EnumeratePlanBuildFiles())
+                {
+                    string full;
+                    try { full = System.IO.Path.GetFullPath(path); } catch { continue; }
+                    if (!seen.Add(full)) continue;
+                    var bp = ParsePlain(full);
+                    if (bp != null) { result.Add(bp); _thumbQueue.Enqueue(bp); }
+                    if (Time.realtimeSinceStartup > sliceEnd) { yield return null; sliceEnd = Time.realtimeSinceStartup + ParseBudgetSeconds; }
+                }
+                _loading = false;
+                FiresLogger.LogVerbose($"PlanBuild reader: {result.Count} blueprint(s) in {_folders.Count} folder(s).");
+                BuildList();
+                _load = null;
+            }
+
+            private void Update()
+            {
+                if (_thumbQueue.Count == 0 || ++_gap < ThumbFrameGap) return;
+                _gap = 0;
+                var bp = _thumbQueue.Dequeue();
+                if (_thumbs.ContainsKey(bp.SourcePath) || !System.IO.File.Exists(bp.SourcePath)) return;
+                try
+                {
+                    string file = ThumbFile(bp);
+                    if (System.IO.File.Exists(file)) { ShowThumb(bp, System.IO.File.ReadAllBytes(file)); return; }
+                    if (bp.Objects.Count > ThumbMaxPieces) return;
+                    byte[] png = BlueprintPreviewRenderer.RenderThumbPng(bp, ThumbSize);
+                    if (png == null) return;
+                    System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(file));
+                    System.IO.File.WriteAllBytes(file, png);
+                    ShowThumb(bp, png);
+                }
+                catch (Exception ex) { FiresLogger.LogVerbose($"bench thumbnail '{bp.Name}': {ex.Message}"); }
+            }
         }
 
         // ── esc / cursor driver (client-only Hud hook) ───────────────────────────────
@@ -673,7 +952,7 @@ namespace FiresDungeonMaster.UI
             if (_searchInput != null) _searchInput.SetTextWithoutNotify("");
             else if (_nameT != null) _nameT.text = "";
             foreach (var t in new[] { _roleV, _typeV, _fpV, _storiesV, _objV }) if (t != null) t.text = "";
-            if (_notesT != null) _notesT.text = "Select a section.";
+            if (_notesT != null) _notesT.text = _showBlueprints ? "Select a blueprint." : "Select a section.";
             if (_planImg != null) { _planImg.sprite = null; _planImg.color = new Color(0.06f, 0.19f, 0.38f, 0.3f); }
         }
 

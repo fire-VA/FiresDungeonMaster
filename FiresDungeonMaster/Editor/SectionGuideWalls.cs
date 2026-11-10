@@ -37,7 +37,7 @@ namespace FiresDungeonMaster.Editor
         // Structured guide diagnostics (shader resolution, mesh verts, material alpha/queue, renderer state, world
         // placement + bounds). Gated on the mod's "Verbose Logging" config (default off).
         internal static bool Verbose => FiresLogger.VerboseEnabled;
-        internal static void Log(string msg) { if (Verbose) UnityEngine.Debug.Log("[GUIDE-DBG] " + msg); }
+        internal static void Log(string msg) { if (Verbose) FiresLogger.LogDebug("[GUIDE-DBG] " + msg); }
 
         /// <summary>A face shows a guide panel unless it is fully Open (an Open face keeps its edge orb instead).</summary>
         internal static bool FaceHasPanel(EdgeTag tag) => tag != EdgeTag.Open;
@@ -96,6 +96,83 @@ namespace FiresDungeonMaster.Editor
             Log($"face={FaceName(face)} tag={tag} width={width:F2} H={H:F2} T={T} segs={segs} " +
                 $"wallLocal={pos} wallWorld={wall.transform.position}");
             return segs;
+        }
+
+        // 0.1.167 wall panels: one faint panel per 2 m segment per story (kinds from SectionFootprintController.PanelRow).
+        private static readonly Color PanelColor = new Color(0.78f, 0.80f, 0.84f, 0.16f);   // faint grey glass
+        private static readonly Color FrameColor = new Color(0.86f, 0.88f, 0.92f, 0.55f);   // the panel's grid edge
+        private static readonly Color ConnColor  = new Color(1.00f, 1.00f, 1.00f, 0.85f);   // connection frame + orb
+        private static readonly Color EntrColor  = new Color(0.30f, 0.90f, 0.40f, 0.80f);   // entrance
+        private static readonly Color WinBlue    = new Color(0.30f, 0.55f, 0.95f, 0.55f);   // window
+        private static Material _panelMat, _frameMat, _connMat, _entrMat, _winBlueMat;
+        private const float PanelT = 0.08f, FrameT = 0.06f;
+
+        /// <summary>Build one face's panels: <paramref name="rows"/>[story] holds a kind per 2 m segment. Returns the panel count.</summary>
+        internal static int BuildPanels(Transform parent, int face, Vector3 box, int stories, string[] rows)
+        {
+            if (_panelMat == null) { _panelMat = MakeTransparent(PanelColor); _frameMat = MakeTransparent(FrameColor); _connMat = MakeTransparent(ConnColor); _entrMat = MakeTransparent(EntrColor); _winBlueMat = MakeTransparent(WinBlue); }
+            float hx = box.x * 0.5f, hz = box.z * 0.5f;
+            float width = face == 0 || face == 2 ? box.x : box.z;
+            float floor = SectionFootprintController.FloorOffset, sh = SectionFootprintController.StoryHeight;
+            var wall = new GameObject("Panels_" + FaceName(face));
+            wall.transform.SetParent(parent, false);
+            switch (face)
+            {
+                case 0: wall.transform.localPosition = new Vector3(0f, 0f, hz); wall.transform.localRotation = Quaternion.identity; break;
+                case 1: wall.transform.localPosition = new Vector3(hx, 0f, 0f); wall.transform.localRotation = Quaternion.Euler(0f, 90f, 0f); break;
+                case 2: wall.transform.localPosition = new Vector3(0f, 0f, -hz); wall.transform.localRotation = Quaternion.identity; break;
+                default: wall.transform.localPosition = new Vector3(-hx, 0f, 0f); wall.transform.localRotation = Quaternion.Euler(0f, 90f, 0f); break;
+            }
+            int count = 0;
+            for (int s = 0; s < stories && s < rows.Length; s++)
+            {
+                string row = rows[s];
+                int n = row.Length;
+                float segW = width / n;
+                float y0 = s == 0 ? 0f : floor + s * sh, y1 = floor + (s + 1) * sh, h = y1 - y0;
+                for (int i = 0; i < n; i++)
+                {
+                    char k = row[i];
+                    if (k == 'O') continue;
+                    float cx = -width * 0.5f + (i + 0.5f) * segW;
+                    var p = new GameObject($"P{s}_{i}_{k}");
+                    p.transform.SetParent(wall.transform, false);
+                    p.transform.localPosition = new Vector3(cx, y0 + h * 0.5f, 0f);
+                    // the panel's grid frame (both sides + top; the floor line is the floor grid)
+                    AddSeg(p.transform, "fL", FrameT, h, FrameT, new Vector3(-segW * 0.5f + FrameT * 0.5f, 0f, 0f), _frameMat);
+                    AddSeg(p.transform, "fR", FrameT, h, FrameT, new Vector3(segW * 0.5f - FrameT * 0.5f, 0f, 0f), _frameMat);
+                    AddSeg(p.transform, "fT", segW, FrameT, FrameT, new Vector3(0f, h * 0.5f - FrameT * 0.5f, 0f), _frameMat);
+                    AddSeg(p.transform, "fM", segW, FrameT * 0.5f, FrameT * 0.5f, new Vector3(0f, 0f, 0f), _frameMat);   // the 2 m line half-way up
+                    switch (k)
+                    {
+                        case 'D': case 'C': case 'E':
+                        {
+                            float dw = Mathf.Min(DoorW, segW - 0.2f), dh = Mathf.Min(DoorH + (s == 0 ? floor : 0f), h - 0.2f);
+                            var m = k == 'C' ? _connMat : k == 'E' ? _entrMat : _frameMat;
+                            AddHoleWall(p.transform, segW, h, PanelT, dw, dh, dh * 0.5f, _panelMat);
+                            // the doorway frame in the kind's colour
+                            AddSeg(p.transform, "dL", 0.1f, dh, 0.1f, new Vector3(-dw * 0.5f, -h * 0.5f + dh * 0.5f, 0f), m);
+                            AddSeg(p.transform, "dR", 0.1f, dh, 0.1f, new Vector3(dw * 0.5f, -h * 0.5f + dh * 0.5f, 0f), m);
+                            AddSeg(p.transform, "dT", dw + 0.1f, 0.1f, 0.1f, new Vector3(0f, -h * 0.5f + dh, 0f), m);
+                            if (k != 'D') AddSeg(p.transform, "orb", 0.35f, 0.35f, 0.35f, new Vector3(0f, -h * 0.5f + dh * 0.5f, 0.3f), m);
+                            break;
+                        }
+                        case 'B':
+                        {
+                            float ww = Mathf.Min(WinW, segW - 0.3f), wh = Mathf.Min(WinH, h - 1.6f);
+                            float sill = Mathf.Clamp(WinSill + (s == 0 ? floor : 0f), 0.2f, h - wh - 0.2f);
+                            AddHoleWall(p.transform, segW, h, PanelT, ww, wh, sill + wh * 0.5f, _panelMat);
+                            AddSeg(p.transform, "glass", ww, wh, 0.03f, new Vector3(0f, -h * 0.5f + sill + wh * 0.5f, 0f), _winBlueMat);
+                            break;
+                        }
+                        default:
+                            AddSeg(p.transform, "fill", segW, h, PanelT, Vector3.zero, _panelMat);
+                            break;
+                    }
+                    count++;
+                }
+            }
+            return count;
         }
 
         // Post-build verification: log the deterministic signals that tell us whether the walls are set up correctly,

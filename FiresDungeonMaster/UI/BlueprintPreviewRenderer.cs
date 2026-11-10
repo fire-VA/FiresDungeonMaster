@@ -49,6 +49,46 @@ namespace FiresDungeonMaster.UI
         /// <summary>Render <paramref name="bp"/> to a Sprite (null on failure / headless / empty). Caller assigns it.</summary>
         public static Sprite RenderSprite(FiresDungeonMaster.Sections.SectionBlueprint bp)
         {
+            var tex = Capture(bp);
+            if (tex == null) return null;
+            if (_lastSprite != null)
+            {
+                if (_lastSprite.texture != null) UnityEngine.Object.Destroy(_lastSprite.texture);
+                UnityEngine.Object.Destroy(_lastSprite);
+            }
+            _lastSprite = Sprite.Create(tex, new Rect(0, 0, Res, Res), new Vector2(0.5f, 0.5f), 100f);
+            return _lastSprite;
+        }
+
+        /// <summary>0.1.189: a small copy for the bench list, as PNG bytes for its disk cache (null on failure).</summary>
+        public static byte[] RenderThumbPng(FiresDungeonMaster.Sections.SectionBlueprint bp, int size)
+        {
+            var big = Capture(bp);
+            if (big == null) return null;
+            var small = RenderTexture.GetTemporary(size, size, 0);
+            var prev = RenderTexture.active;
+            try
+            {
+                Graphics.Blit(big, small);
+                RenderTexture.active = small;
+                var tex = new Texture2D(size, size, TextureFormat.RGB24, false);
+                tex.ReadPixels(new Rect(0, 0, size, size), 0, 0);
+                tex.Apply();
+                byte[] png = ImageCodec.Encode(tex);
+                UnityEngine.Object.Destroy(tex);
+                return png;
+            }
+            finally
+            {
+                RenderTexture.active = prev;
+                RenderTexture.ReleaseTemporary(small);
+                UnityEngine.Object.Destroy(big);
+            }
+        }
+
+        private static Texture2D Capture(FiresDungeonMaster.Sections.SectionBlueprint bp)
+        {
+
             if (IsClientOnly() || bp == null || bp.Objects == null || bp.Objects.Count == 0 || ZNetScene.instance == null) return null;
             EnsureRig();
 
@@ -97,13 +137,7 @@ namespace FiresDungeonMaster.UI
                 RenderTexture.active = prevActive;
                 _light.enabled = false;
 
-                if (_lastSprite != null)
-                {
-                    if (_lastSprite.texture != null) UnityEngine.Object.Destroy(_lastSprite.texture);
-                    UnityEngine.Object.Destroy(_lastSprite);
-                }
-                _lastSprite = Sprite.Create(tex, new Rect(0, 0, Res, Res), new Vector2(0.5f, 0.5f), 100f);
-                return _lastSprite;
+                return tex;
             }
             catch (Exception ex)
             {
@@ -135,5 +169,21 @@ namespace FiresDungeonMaster.UI
             foreach (var rb in piece.GetComponentsInChildren<Rigidbody>(true)) if (rb != null) UnityEngine.Object.Destroy(rb);
             foreach (var mb in piece.GetComponentsInChildren<MonoBehaviour>(true)) if (mb != null) mb.enabled = false;
         }
+    }
+}
+
+namespace FiresDungeonMaster.UI
+{
+    /// <summary>0.1.189: Unity's PNG calls, bound by name: their module assembly needs a netstandard reference this project does not compile against.</summary>
+    internal static class ImageCodec
+    {
+        private static readonly System.Type T = System.Type.GetType("UnityEngine.ImageConversion, UnityEngine.ImageConversionModule", false);
+        private static readonly System.Func<UnityEngine.Texture2D, byte[]> Enc = T == null ? null :
+            (System.Func<UnityEngine.Texture2D, byte[]>)System.Delegate.CreateDelegate(typeof(System.Func<UnityEngine.Texture2D, byte[]>), T.GetMethod("EncodeToPNG", new[] { typeof(UnityEngine.Texture2D) }));
+        private static readonly System.Func<UnityEngine.Texture2D, byte[], bool> Dec = T == null ? null :
+            (System.Func<UnityEngine.Texture2D, byte[], bool>)System.Delegate.CreateDelegate(typeof(System.Func<UnityEngine.Texture2D, byte[], bool>), T.GetMethod("LoadImage", new[] { typeof(UnityEngine.Texture2D), typeof(byte[]) }));
+
+        internal static byte[] Encode(UnityEngine.Texture2D t) => Enc?.Invoke(t);
+        internal static bool Load(UnityEngine.Texture2D t, byte[] png) => Dec != null && Dec(t, png);
     }
 }

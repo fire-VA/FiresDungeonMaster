@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -72,6 +72,9 @@
     <Reference Include="UnityEngine">
       <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.IMGUIModule">
+      <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>..\..\..\..\..\..\..\Program Files (x86)\Steam\steamapps\common\Valheim\valheim_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
     </Reference>
@@ -114,8 +117,30 @@
     <Compile Include="DungeonMasterConfig.cs" />
     <Compile Include="Ascend.cs" />
     <Compile Include="Utilities\FiresLogger.cs" />
+    <Compile Include="Utilities\TypingGate.cs" />
     <Compile Include="Utilities\FiresDungeonMasterBanner.cs" />
     <Compile Include="Editor\SectionFootprintController.cs" />
+    <Compile Include="Editor\FootprintPhase1.cs" />
+    <Compile Include="Editor\VanillaRoomPieces.cs" />
+    <Compile Include="Editor\LiveRoomChildren.cs" />
+    <Compile Include="Editor\DungeonLink.cs" />
+    <Compile Include="Sections\BlueprintFolders.cs" />
+    <Compile Include="Editor\ProxyEntrance.cs" />
+    <Compile Include="Editor\RoomSnaps.cs" />
+    <Compile Include="Editor\DungeonBuildTab.cs" />
+    <Compile Include="Editor\EntranceLink.cs" />
+    <Compile Include="Editor\EntranceExit.cs" />
+    <Compile Include="Editor\GeneratedBoxPreset.cs" />
+    <Compile Include="Editor\VedrSeasons.cs" />
+    <Compile Include="Editor\BoxTerritory.cs" />
+    <Compile Include="Editor\DungeonBlueprint.cs" />
+    <Compile Include="Editor\VanillaFriendly.cs" />
+    <Compile Include="UI\EntrancePresetPopup.cs" />
+    <Compile Include="Editor\DungeonPresets.cs" />
+    <Compile Include="UI\DungeonPresetUI.cs" />
+    <Compile Include="Editor\EnvBoxPresets.cs" />
+    <Compile Include="UI\EnvBoxPresetUI.cs" />
+    <Compile Include="UI\GripSprite.cs" />
     <Compile Include="Editor\SectionGuideWalls.cs" />
     <Compile Include="Editor\SectionFootprintContextProvider.cs" />
     <Compile Include="Editor\SectionPlaceGrabController.cs" />
@@ -131,6 +156,7 @@
     <Compile Include="UI\DungeonEditPanel.cs" />
     <Compile Include="Modules\AllScalablePatch.cs" />
     <Compile Include="UI\LockpickPanel.cs" />
+    <Compile Include="UI\InputBlockOwned.cs" />
     <Compile Include="UI\LockpickAudio.cs" />
     <Compile Include="Editor\EntryDoorController.cs" />
     <Compile Include="Editor\LockpickSkill.cs" />
@@ -159,10 +185,12 @@
     <Compile Include="Sections\SectionPlacer.cs" />
     <Compile Include="Sections\SectionEditSpawner.cs" />
     <Compile Include="Modules\DungeonMasterCommands.cs" />
+    <Compile Include="Api\FdmApi.cs" />
     <Compile Include="Generation\DungeonMasterNames.cs" />
     <Compile Include="Generation\DungeonMasterRoomFactory.cs" />
     <Compile Include="Generation\DungeonMasterSpecBuilder.cs" />
     <Compile Include="Generation\DungeonMasterInteriorPatch.cs" />
+    <Compile Include="Generation\IhPlacement.cs" />
     <Compile Include="Generation\DungeonGenerationCommands.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -170,9 +198,8 @@
     <!-- The baked editor AssetBundle, embedded so GetAssetBundleFromResources (Ascend.cs) can stream it.
          Staged into the mod project dir after the Unity bake. The Exists guard lets the mod compile bundle-less
          (e.g. before the first bake), matching the FiresMausoleum / FiresWayshrines csproj pattern. -->
-    <EmbeddedResource Include="firesdungeonmaster" Condition="Exists('$(MSBuildProjectDirectory)\firesdungeonmaster')">
-      <LogicalName>firesdungeonmaster</LogicalName>
-    </EmbeddedResource>
+    <!-- 0.1.139: NOT embedded any more; it ships as the LZ4 file "firesdungeonmaster" next to the DLL (LoadFromFile). -->
+    <None Include="firesdungeonmaster" Condition="Exists('$(MSBuildProjectDirectory)\firesdungeonmaster')" />
     <!-- Lock-picking minigame art (user-authored, sliced): housing / one pin / the pick rod. Embedded so
          LockpickPanel loads them at runtime via Texture2D.LoadImage (no bundle rebuild needed to iterate). -->
     <EmbeddedResource Include="Art\FiresLockHousing.png"><LogicalName>FiresLockHousing.png</LogicalName></EmbeddedResource>

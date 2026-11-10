@@ -82,6 +82,11 @@ namespace FiresDungeonMaster.Generation
                 { "Goblin Camp",   Room.Theme.GoblinCamp },
                 { "Ashlands Ruins", Room.Theme.AshlandRuins },
                 { "Fortress Ruins", Room.Theme.FortressRuins },
+                { "Hildir Crypt",  Room.Theme.ForestCryptHildir },
+                { "Hildir Cave",   Room.Theme.CaveHildir },
+                { "Dvergr Boss Hall", Room.Theme.DvergerBoss },
+                { "Morkhalla",     Room.Theme.MorkHalla },
+                { "The Hole",      Room.Theme.Hole },
             };
 
         internal static string DgNamePrefixFor(string dungeonType) =>
@@ -157,7 +162,7 @@ namespace FiresDungeonMaster.Generation
             int registered = 0;
             foreach (var label in VanillaThemes.Keys)
             {
-                var spec = BuildAndRegisterVanilla(label, out string reason);
+                var spec = BuildAndRegisterVanilla(label, out string reason, false);
                 if (spec != null) registered++;
                 else FiresLogger.LogVerbose($"vanilla pre-register skipped '{label}': {reason}");
             }
@@ -275,7 +280,7 @@ namespace FiresDungeonMaster.Generation
 
             FiresDungeonBridge.RegisterDungeon(spec);
             if (FiresLogger.VerboseEnabled)
-                Debug.Log($"{spec.LogTag} registered: {roomNames.Count} room(s), theme {theme}, DG '{dgPrefix}', " +
+                FiresLogger.LogDebug($"{spec.LogTag} registered: {roomNames.Count} room(s), theme {theme}, DG '{dgPrefix}', " +
                           $"location template '{locName}' (inactive holder, activeSelf children).");
             return spec;
         }
@@ -287,7 +292,9 @@ namespace FiresDungeonMaster.Generation
         /// Sunken Crypt / Frost Cave / Infested Mine) that our entry door + gateway teleport into exactly like a custom
         /// one. No re-bake, no FUC change. Returns null with a reason if the label is unknown or the template is missing.
         /// </summary>
-        internal static DungeonSpec BuildAndRegisterVanilla(string vanillaLabel, out string reason)
+        // 0.1.201 (login stall, every login, 1.9-3.3 s in round logs; TheHole01 alone 1044 ms): the stock DG tuning only feeds generation. vanilla DungeonGenerator.Awake -> Load reads
+        // the saved rooms from the ZDO and PlaceRoom reads none of the tuning, so a client or a reloaded dedi needs only the registered clone. tune = this spec is about to generate.
+        internal static DungeonSpec BuildAndRegisterVanilla(string vanillaLabel, out string reason, bool tune = true)
         {
             reason = "";
             if (string.IsNullOrEmpty(vanillaLabel)) { reason = "no vanilla dungeon selected."; return null; }
@@ -311,7 +318,9 @@ namespace FiresDungeonMaster.Generation
             string exitPrefix = "FiresDM_" + Sanitize(vanillaLabel) + "Exit";
 
             var assets = new FiresDungeonAssets();
-            GameObject locClone = BuildLocationClone(baseTemplate, locName, dgPrefix, portalName, theme, gatewayPrefix, exitPrefix, copyVanillaSettings: true);
+            GameObject locClone = BuildLocationClone(baseTemplate, locName, dgPrefix, portalName, theme, gatewayPrefix, exitPrefix, copyVanillaSettings: tune);
+            var cloneDg = locClone != null ? locClone.GetComponentInChildren<DungeonGenerator>(true) : null;
+            if (cloneDg != null) cloneDg.m_useCustomInteriorTransform = false;   // PlaceRoom reads this on load too: always as TryCopyVanillaDgSettings sets it
             assets.SetPrefabs(new List<GameObject> { locClone });
 
             var spec = new DungeonSpec
@@ -352,7 +361,7 @@ namespace FiresDungeonMaster.Generation
 
             FiresDungeonBridge.RegisterDungeon(spec);
             if (FiresLogger.VerboseEnabled)
-                Debug.Log($"{spec.LogTag} registered vanilla passthrough: theme {theme}, DG '{dgPrefix}' (stock rooms).");
+                FiresLogger.LogDebug($"{spec.LogTag} registered vanilla passthrough: theme {theme}, DG '{dgPrefix}' (stock rooms).");
             return spec;
         }
 
@@ -429,7 +438,7 @@ namespace FiresDungeonMaster.Generation
 
             FiresDungeonBridge.RegisterDungeon(spec);
             if (FiresLogger.VerboseEnabled)
-                Debug.Log($"{spec.LogTag} registered EMPTY room (portal + landing pad + exit + env box; no procedural rooms).");
+                FiresLogger.LogDebug($"{spec.LogTag} registered EMPTY room (portal + landing pad + exit + env box; no procedural rooms).");
             return spec;
         }
 
@@ -527,7 +536,7 @@ namespace FiresDungeonMaster.Generation
                 Vector3 gwL = gatewayT != null ? gatewayT.localPosition : Vector3.zero;
                 Vector3 exL = exitT != null ? exitT.localPosition : Vector3.zero;
                 float dgXZ = new Vector2(dgL.x, dgL.z).magnitude;
-                Debug.Log($"[FDM-PLACE] template '{locName}' baked child LOCAL offsets: DG={dgL} (xz-mag={dgXZ:F2}), " +
+                FiresLogger.LogDebug($"[FDM-PLACE] template '{locName}' baked child LOCAL offsets: DG={dgL} (xz-mag={dgXZ:F2}), " +
                           $"gateway={gwL}, exit={exL}. For zone-centre anchoring the DG xz-mag MUST be ~0 " +
                           $"(else the DG lands off-centre by that XZ and rooms clip on one side).");
             }
@@ -585,6 +594,11 @@ namespace FiresDungeonMaster.Generation
             // CharredFortress has no DungeonGenerator.
             { Room.Theme.AshlandRuins, new[] { "AshlandRuins" } },
             { Room.Theme.FortressRuins, new[] { "FortressRuins" } },
+            { Room.Theme.ForestCryptHildir, new[] { "Hildir_crypt" } },
+            { Room.Theme.CaveHildir, new[] { "Hildir_cave" } },
+            { Room.Theme.DvergerBoss, new[] { "Mistlands_DvergrBossEntrance1", "Mistlands_DvergrBossEntrance" } },
+            { Room.Theme.MorkHalla, new[] { "MorkBorg", "morkborg" } },
+            { Room.Theme.Hole, new[] { "TheHole01", "thehole01" } },
         };
 
         /// <summary>
@@ -593,15 +607,22 @@ namespace FiresDungeonMaster.Generation
         /// the generator can only place the entrance. Reads the source DG off the vanilla Location prefab via its
         /// SoftReference (loaded, never instantiated). Returns false (keeping the baked tuning) if no source is found.
         /// </summary>
+        private static readonly Dictionary<Room.Theme, DungeonGenerator> _tuningSources = new Dictionary<Room.Theme, DungeonGenerator>();
+
         private static bool TryCopyVanillaDgSettings(DungeonGenerator target, Room.Theme theme)
         {
             var zs = ZoneSystem.instance;
             if (target == null || zs == null || zs.m_locations == null) return false;
 
-            DungeonGenerator src = null;
-            if (VanillaDgSources.TryGetValue(theme, out var names))
-                foreach (var nm in names) { src = LoadDgFromLocation(zs, nm); if (src != null) break; }
-            if (src == null) src = FindDgByTheme(zs, theme);
+            // One load per theme: Load() is ref-counted and the source stays loaded for its DoorDef prefab refs.
+            if (!_tuningSources.TryGetValue(theme, out DungeonGenerator src) || src == null)
+            {
+                src = null;
+                if (VanillaDgSources.TryGetValue(theme, out var names))
+                                foreach (var nm in names) { src = LoadDgFromLocation(zs, nm); if (src != null) break; }
+                if (src == null) src = FindDgByTheme(zs, theme);
+                if (src != null) _tuningSources[theme] = src;
+            }
             if (src == null)
             {
                 Debug.LogWarning($"[FiresDungeonMaster] no stock DG found for theme {theme}; vanilla dungeon keeps generic tuning (may be sparse).");
@@ -680,7 +701,8 @@ namespace FiresDungeonMaster.Generation
                     n.IndexOf("Dungeon", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Goblin", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     n.IndexOf("Camp", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Fortress", StringComparison.OrdinalIgnoreCase) >= 0 ||
                     n.IndexOf("Ruin", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Charred", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    n.IndexOf("Ashland", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Mistlands", StringComparison.OrdinalIgnoreCase) >= 0;
+                    n.IndexOf("Ashland", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Mistlands", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    n.IndexOf("Hildir", StringComparison.OrdinalIgnoreCase) >= 0 || n.IndexOf("Morkhalla", StringComparison.OrdinalIgnoreCase) >= 0;
                 if (!likely) continue;
                 zl.m_prefab.Load();
                 var dg = zl.m_prefab.Asset != null ? zl.m_prefab.Asset.GetComponentInChildren<DungeonGenerator>(true) : null;
@@ -690,24 +712,6 @@ namespace FiresDungeonMaster.Generation
             return null;
         }
 
-        // Starts async loads of the one stock location each registered vanilla theme copies its tuning from, as soon
-        // as the location list exists, so the synchronous Load() in TryCopyVanillaDgSettings finds them resident when
-        // WorldStart builds the specs. Only the first name per theme: the one that is actually used.
-        internal static void WarmVanillaDgSources(ZoneSystem zs)
-        {
-            if (zs == null || zs.m_locations == null) return;
-            var firstSourceNames = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var theme in VanillaThemes.Values.Distinct())
-                if (VanillaDgSources.TryGetValue(theme, out var names) && names.Length > 0)
-                    firstSourceNames.Add(names[0]);
-
-            foreach (var zl in zs.m_locations)
-            {
-                if (zl == null || !zl.m_prefab.IsValid || !firstSourceNames.Contains(zl.m_prefab.Name)) continue;
-                if (zl.m_prefab.IsLoaded || zl.m_prefab.IsLoading) continue;
-                zl.m_prefab.LoadAsync();
-            }
-        }
 
         private static Room.Theme ThemeFor(string dungeonType)
         {
@@ -727,12 +731,5 @@ namespace FiresDungeonMaster.Generation
                 sb.Append(char.IsLetterOrDigit(c) ? c : '_');
             return sb.ToString();
         }
-    }
-
-    [HarmonyPatch(typeof(ZoneSystem), "Start")]
-    public static class WarmVanillaDgSourcesOnZoneSystemStart
-    {
-        [HarmonyPostfix]
-        static void Postfix(ZoneSystem __instance) => DungeonMasterSpecBuilder.WarmVanillaDgSources(__instance);
     }
 }

@@ -46,7 +46,7 @@ namespace FiresDungeonMaster.Modules
             if (!_standDownLogged)
             {
                 _standDownLogged = true;
-                Debug.Log("[FiresDungeonMaster] Structure Tweaks detected — AllScalable stands down (ST owns m_syncInitialScale).");
+                FiresLogger.LogDebug("[FiresDungeonMaster] Structure Tweaks detected — AllScalable stands down (ST owns m_syncInitialScale).");
             }
             return true;
         }

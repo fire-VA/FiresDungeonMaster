@@ -53,7 +53,7 @@ namespace FiresDungeonMaster.Editor
             // Shift/Alt+Shift right-click near a box edits it instead of summoning a companion into the build.
             FiresCore.Npc.Commands.CompanionCommandCoordinator.WhistleSuppressor = SectionFootprintController.IsPlayerInStagingArea;
 
-            Debug.Log("[FOOTPRINT-CTX] marker source + editor claim + whistle suppressor registered (Alt+Shift right-click a sphere).");
+            FiresLogger.LogDebug("[FOOTPRINT-CTX] marker source + editor claim + whistle suppressor registered (Alt+Shift right-click a sphere).");
         }
 
         // Marker source: ray-test the five spheres of every live footprint (PatrolRouteVisualizer.HitTest scaled to
@@ -110,7 +110,7 @@ namespace FiresDungeonMaster.Editor
             return true;
         }
 
-        private static void Dbg(string m) { if (SectionGuideWalls.Verbose) Debug.Log("[FOOTPRINT-CTX-DBG] " + m); }
+        private static void Dbg(string m) { if (SectionGuideWalls.Verbose) FiresLogger.LogDebug("[FOOTPRINT-CTX-DBG] " + m); }
 
         // How far OUTSIDE a footprint box a right-click still counts as "the dungeon's context" (metres). Keeps a
         // click on the ground right at the box edge on the editor, not on the companion "move here" provider. Small

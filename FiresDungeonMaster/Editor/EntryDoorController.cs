@@ -29,8 +29,26 @@ namespace FiresDungeonMaster.Editor
             "Forest Crypt", "Sunken Crypt", "Meadows Crypt",
             "Frost Cave", "Infested Mine", "Troll Cave",
             "Goblin Camp", "Ashlands Ruins", "Fortress Ruins",
+            "Hildir Crypt", "Hildir Cave", "Dvergr Boss Hall", "Morkhalla", "The Hole",
         };
-        public static readonly string[] Environments = { "Crypt", "SunkenCrypt", "Caves", "Mistlands", "Ashlands", "Meadows", "Nothing" };
+        // 0.1.195 (Fire 11-02; every value read from the location prefabs in the 1.0 rip): what an entrance can generate, one row per
+        // teleport dungeon: a location with m_hasInterior, 2 Teleports and a DungeonGenerator. Camps and villages (Goblin Camp, Ashlands
+        // Ruins, Fortress Ruins) generate outdoors with no entrance, so they are not offered; VanillaDungeons above still accepts them for
+        // doors that already have one. Interiors with no generator (DN_Bossroom, BearCave, MorgenHole1-3, PlaceofMystery3) have nothing to pick.
+        internal struct Pick { internal string Label, Environment; }
+        internal static readonly Pick[] Picks =
+        {
+            new Pick { Label = "Forest Crypt", Environment = "Crypt" },           // Crypt2-4, theme ForestCrypt
+            new Pick { Label = "Sunken Crypt", Environment = "SunkenCrypt" },     // SunkenCrypt4
+            new Pick { Label = "Troll Cave", Environment = "Caves" },             // MountainCave02, theme Cave
+            new Pick { Label = "Infested Mine", Environment = "InfectedMine" },   // Mistlands_DvergrTownEntrance1/2, theme DvergerTown
+            new Pick { Label = "Dvergr Boss Hall", Environment = "Queen" },       // Mistlands_DvergrBossEntrance1, theme DvergerBoss
+            new Pick { Label = "Hildir Crypt", Environment = "Crypt" },           // Hildir_crypt, theme ForestCryptHildir
+            new Pick { Label = "Hildir Cave", Environment = "Caves" },            // Hildir_cave, theme CaveHildir
+            new Pick { Label = "Morkhalla", Environment = "Morkhalla" },          // MorkBorg, theme MorkHalla
+            new Pick { Label = "The Hole", Environment = "TheHollow" },           // TheHole01, theme Hole
+        };
+        public static readonly string[] Environments = { "Crypt", "SunkenCrypt", "Caves", "Mistlands", "InfectedMine", "Queen", "Morkhalla", "TheHollow", "Ashlands", "Meadows", "Nothing" };
         public static readonly string[] KeyOptions = { "FiresKeyOld", "FiresKeyCopper", "FiresKeySkeleton", "FiresKeySkeletonOrnate" };
         public static readonly string[] LockDifficulties = { "Easy", "Intermediate", "Hard", "Very Hard" };   // LockpickPanel quality presets
 
@@ -45,7 +63,7 @@ namespace FiresDungeonMaster.Editor
         private static readonly int HASH_LOCKDIFF = "fdmdoor_lockdiff".GetStableHashCode();
         private static readonly int HASH_QUEST = "fdmdoor_quest".GetStableHashCode();
         private static readonly int HASH_EMPTY = "fdmdoor_empty".GetStableHashCode();
-        private static readonly int HASH_GEN = "fdmdoor_gen".GetStableHashCode();
+        internal static readonly int HASH_GEN = "fdmdoor_gen".GetStableHashCode();
         private static readonly int HASH_UNLOCKED = "fdmdoor_unlocked".GetStableHashCode();
 
         private void Awake()
@@ -140,7 +158,7 @@ namespace FiresDungeonMaster.Editor
                         $"mesh={(mf != null && mf.sharedMesh != null ? mf.sharedMesh.name : "NULL")} r0.worldBoundsCtr={mr.bounds.center} r0.worldBoundsSize={mr.bounds.size}";
             }
             var zdo = m_nview != null ? m_nview.GetZDO() : null;
-            Debug.Log($"[ENTRYDOOR-DIAG] {name} @{when} pos={transform.position} lossyScale={transform.lossyScale} " +
+            FiresLogger.LogDebug($"[ENTRYDOOR-DIAG] {name} @{when} pos={transform.position} lossyScale={transform.lossyScale} " +
                       $"activeInHierarchy={gameObject.activeInHierarchy} layer={LayerMask.LayerToName(gameObject.layer)} " +
                       $"nviewValid={(m_nview != null && m_nview.IsValid())} zdoNull={zdo == null} {rinfo}");
         }
@@ -149,7 +167,7 @@ namespace FiresDungeonMaster.Editor
         {
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null) return;
             if (!FiresLogger.VerboseEnabled) return;
-            Debug.Log($"[ENTRYDOOR-DIAG] {name} OnDestroy pos={transform.position}");
+            FiresLogger.LogDebug($"[ENTRYDOOR-DIAG] {name} OnDestroy pos={transform.position}");
         }
 
         private Bounds? ComputeLocalRendererBounds()
@@ -199,6 +217,7 @@ namespace FiresDungeonMaster.Editor
         public string LockDifficulty { get => Zdo?.GetString(HASH_LOCKDIFF, "Intermediate") ?? "Intermediate"; set => SetStr(HASH_LOCKDIFF, value); }
         public string QuestId { get => Zdo?.GetString(HASH_QUEST, "") ?? ""; set => SetStr(HASH_QUEST, value); }
         public bool EmptyBox { get => (Zdo?.GetInt(HASH_EMPTY, 0) ?? 0) != 0; set => SetInt(HASH_EMPTY, value ? 1 : 0); }
+        public long DungeonId { get => Zdo?.GetLong(DungeonLink.HashId, 0L) ?? 0L; set { ClaimOwnershipIfNeeded(); Zdo?.Set(DungeonLink.HashId, value); } }
         public bool Generated { get => (Zdo?.GetInt(HASH_GEN, 0) ?? 0) != 0; set => SetInt(HASH_GEN, value ? 1 : 0); }
         public bool Unlocked { get => (Zdo?.GetInt(HASH_UNLOCKED, 0) ?? 0) != 0; set => SetInt(HASH_UNLOCKED, value ? 1 : 0); }
 
@@ -252,11 +271,14 @@ namespace FiresDungeonMaster.Editor
         // ── Generate: build the dungeon behind this door (server-authoritative) ───────────────────────────────
         public string Generate()
         {
-            Vector3 pos = transform.position;
-            Quaternion rot = transform.rotation;
-            if (ZNet.instance != null && ZNet.instance.IsServer())
-                return EntryDoorGeneration.GenerateForDoor(this, pos, rot);   // host / dedi console — direct
-            return EntryDoorRpc.RequestGenerate(this, pos, rot);              // remote client — ask the server
+            var config = new EntryDoorGeneration.DoorConfig { DungeonType = DungeonType, Environment = Environment, KeyPrefab = KeyPrefab, IsVanilla = IsVanilla, EmptyBox = EmptyBox };
+            if (ZNet.instance != null && ZNet.instance.IsServer())   // host / dedi console — direct
+            {
+                string r = EntryDoorGeneration.GenerateForDoor(config, DungeonId, Zdo != null ? Zdo.m_uid : ZDOID.None, transform.position, transform.rotation, out long id);
+                if (id != 0L) { DungeonId = id; Generated = true; }
+                return r;
+            }
+            return EntryDoorRpc.RequestGenerate(this, config);              // remote client — ask the server
         }
 
         // ── Hoverable ─────────────────────────────────────────────────────────────────────────────────────────
@@ -348,13 +370,13 @@ namespace FiresDungeonMaster.Editor
             Teleport exit = FindDungeonExit(anchor);
             if (exit == null)
             {
-                Debug.Log($"[FDM-PLACE] door enter '{DungeonType}': no exit teleport near zone centre {anchor} — not generated on this peer yet?");
+                FiresLogger.LogDebug($"[FDM-PLACE] door enter '{DungeonType}': no exit teleport near zone centre {anchor} — not generated on this peer yet?");
                 player.Message(MessageHud.MessageType.Center, "The way beyond hasn't finished forming.");
                 return true;
             }
 
             LandingInFrontOf(exit.transform, InteriorLandOutward, out Vector3 pt, out Quaternion rot);
-            Debug.Log($"[FDM-PLACE] door enter '{DungeonType}': exit={exit.transform.position} -> land {pt} facing {rot.eulerAngles}.");
+            FiresLogger.LogDebug($"[FDM-PLACE] door enter '{DungeonType}': exit={exit.transform.position} -> land {pt} facing {rot.eulerAngles}.");
             FiresDungeonMaster.UI.LockpickAudio.PlayDoorOpen();
             player.TeleportTo(pt, rot, false);
             // Announce the dungeon's configured DISPLAY NAME on entry — the vanilla biome/location discovery banner.
@@ -383,7 +405,7 @@ namespace FiresDungeonMaster.Editor
 
         // The interior EXIT teleport of THIS door's dungeon (a Portal child ~y+5000). Matched by the FiresDM_+Exit name
         // and nearest XZ to the zone-centre anchor — the dungeon sits above the zone centre (same XZ / zone) at +5000.
-        private static Teleport FindDungeonExit(Vector3 anchor)
+        internal static Teleport FindDungeonExit(Vector3 anchor)
         {
             Vector2 aXZ = new Vector2(anchor.x, anchor.z);
             Teleport best = null;
@@ -433,7 +455,7 @@ namespace FiresDungeonMaster.Editor
             {
                 if (b == null) continue;
                 Vector3 p = b.transform.position;
-                if (p.y < 2500f) continue;                        // interior altitude only (skip any surface-placed boxes)
+                if (!EntranceLink.IsInterior(p)) continue;                        // interior altitude only (skip any surface-placed boxes)
                 if (ZoneSystem.GetZone(p) != zone) continue;      // must belong to OUR dungeon's zone
                 float dxz = (new Vector2(p.x, p.z) - new Vector2(anchor.x, anchor.z)).sqrMagnitude;
                 if (dxz < bestXZ) { bestXZ = dxz; best = b; }
@@ -445,7 +467,7 @@ namespace FiresDungeonMaster.Editor
         {
             if (player == null) return false;
             EntryDoorController door = FindGeneratedDoorInZone(exitPos);
-            if (door == null) return false;
+            if (door == null) return ProxyEntrance.ExitToProxy(exitPos, player);
 
             // Symmetric with entry: land just in front of the door on its outside, lifted a touch, facing out.
             LandingInFrontOf(door.transform, SurfaceLandOutward, out Vector3 pt, out Quaternion rot);
@@ -458,12 +480,12 @@ namespace FiresDungeonMaster.Editor
         // y+5000). Fires on the removing peer only (Player.RemovePiece), before the door is destroyed. ─────────────
         public void OnRemoved()
         {
-            if (!Generated) return;
-            Vector3 doorPos = transform.position;
-            if (ZNet.instance != null && ZNet.instance.IsServer())
-                EntryDoorGeneration.CleanupDungeonForDoor(doorPos);   // host / dedi-console — direct
-            else
-                EntryDoorRpc.RequestCleanup(doorPos);                  // remote client — ask the server
+            if (Zdo == null) return;
+            long id = DungeonId;
+            if (id == 0L && Generated) Debug.LogWarning($"[FiresDungeonMaster] door at {transform.position}: generated before dungeon ids (0.1.187), so its dungeon is not removed");
+            ZDOID self = Zdo.m_uid;
+            if (ZNet.instance != null && ZNet.instance.IsServer()) DungeonLink.Teardown(id, self, self, false);   // host / dedi-console — direct
+            else EntryDoorRpc.RequestCleanup(id, self, self, false);                  // remote client — ask the server
         }
 
         public bool UseItem(Humanoid user, ItemDrop.ItemData item) => false;
@@ -482,10 +504,10 @@ namespace FiresDungeonMaster.Editor
                 string n = ghost != null ? ghost.name : (piece.gameObject != null ? piece.gameObject.name : "");
                 if (string.IsNullOrEmpty(n) || n.IndexOf("FiresDoor", System.StringComparison.Ordinal) < 0) return;
                 if (ghost != null)
-                    Debug.Log($"[ENTRYDOOR-DIAG] PlacePiece ghost='{ghost.name}' ghostPos={ghost.transform.position} " +
+                    FiresLogger.LogDebug($"[ENTRYDOOR-DIAG] PlacePiece ghost='{ghost.name}' ghostPos={ghost.transform.position} " +
                               $"ghostRot={ghost.transform.rotation.eulerAngles} ghostScale={ghost.transform.lossyScale} playerPos={__instance.transform.position}");
                 else
-                    Debug.Log($"[ENTRYDOOR-DIAG] PlacePiece piece='{piece.gameObject.name}' NO GHOST playerPos={__instance.transform.position}");
+                    FiresLogger.LogDebug($"[ENTRYDOOR-DIAG] PlacePiece piece='{piece.gameObject.name}' NO GHOST playerPos={__instance.transform.position}");
             }
         }
     }

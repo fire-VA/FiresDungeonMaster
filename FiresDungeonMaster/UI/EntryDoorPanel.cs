@@ -42,8 +42,8 @@ namespace FiresDungeonMaster.UI
         private static void BuildDungeonChoices()
         {
             _dungeonChoices = new List<KeyValuePair<string, bool>>();
-            foreach (var v in EntryDoorController.VanillaDungeons)
-                _dungeonChoices.Add(new KeyValuePair<string, bool>(v, true));
+            foreach (var v in EntryDoorController.Picks)
+                _dungeonChoices.Add(new KeyValuePair<string, bool>(v.Label, true));
             try
             {
                 var lib = FiresDungeonMaster.Sections.FdmPaths.OpenLibrary();
@@ -92,6 +92,10 @@ namespace FiresDungeonMaster.UI
 
             UIBuilderHelper.CreateParchmentButton(_panel.transform, "Generate",
                 new Vector2(0.53f, 0.03f), new Vector2(0.95f, 0.10f), OnGenerate);
+            // 0.1.144 (Fire: save from the door): asks a name (vanilla's text box), then the same capture as fdm_save_dungeon.
+            if (EntryDoorController.IsAdmin())
+                UIBuilderHelper.CreateParchmentButton(_panel.transform, "Save as blueprint",
+                    new Vector2(0.53f, 0.11f), new Vector2(0.95f, 0.18f), OnSaveBlueprint);
             UIBuilderHelper.CreateParchmentButton(_panel.transform, "Close",
                 new Vector2(0.05f, 0.03f), new Vector2(0.47f, 0.10f), Close);
 
@@ -105,7 +109,7 @@ namespace FiresDungeonMaster.UI
             // releases and movement stays frozen (and InputBlock is static, so the freeze survives logout).
             if (!InputBlock.IsBlocked) InputBlock.Block(true);
             _blocked = true;
-            FiresCore.Input.FiresInputBlock.Acquire(PanelToken);   // suppress vanilla + mod hotkeys for the whole window
+            InputBlockOwned.Acquire(PanelToken, _canvasGo);   // suppress vanilla + mod hotkeys for the whole window
             Cursor.lockState = CursorLockMode.None; Cursor.visible = true;
 
             Rebuild();
@@ -326,6 +330,14 @@ namespace FiresDungeonMaster.UI
             var t = go.AddComponent<TextMeshProUGUI>();
             t.text = text; t.fontSize = size; t.color = color; t.alignment = align; t.raycastTarget = false;
             return t;
+        }
+
+        private static void OnSaveBlueprint()
+        {
+            if (_door == null) return;
+            var door = _door;
+            Close();
+            FiresDungeonMaster.Editor.DoorBlueprintSave.Ask(door);
         }
 
         private static void OnGenerate()

@@ -115,6 +115,7 @@ namespace FiresDungeonMaster.Sections
                     // server-side Instantiate, so the high-level ZDO.Set writes bump the data revision and
                     // replicate to peers. This is what makes containers keep their contents on paste.
                     RestoreData(go, obj.Data);
+                    Generation.IhPlacement.Apply(go);   // 0.1.180: Infinity Hammer's settings (Core API, soft), after the restore
 
                     if (CollectSpawned != null)
                     {

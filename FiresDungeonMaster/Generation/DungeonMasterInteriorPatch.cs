@@ -82,6 +82,7 @@ namespace FiresDungeonMaster.Generation
                     if (go == null) continue;
                     if (piece.Scale != Vector3.one && piece.Scale != Vector3.zero)
                         go.transform.localScale = piece.Scale;
+                    IhPlacement.Apply(go);   // 0.1.180: Infinity Hammer's settings (Core API, soft)
                     placed++;
                 }
             }

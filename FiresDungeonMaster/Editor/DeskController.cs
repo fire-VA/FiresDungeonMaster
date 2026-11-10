@@ -59,7 +59,7 @@ namespace FiresDungeonMaster.Editor
                 box.center = local.Value.center;
                 box.size = local.Value.size;
             }
-            Debug.Log($"[DESK-DBG] fit collider layer={LayerMask.LayerToName(gameObject.layer)} " +
+            FiresLogger.LogDebug($"[DESK-DBG] fit collider layer={LayerMask.LayerToName(gameObject.layer)} " +
                       $"size={box.size} center={box.center} fromBounds={local.HasValue}"); // TEMP
         }
 
